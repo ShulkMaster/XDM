@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <RootNamespace>Shulkmaster</RootNamespace>
+    <RootNamespace>Shulkmaster.XDM</RootNamespace>
   </PropertyGroup>
 
   <PropertyGroup>
