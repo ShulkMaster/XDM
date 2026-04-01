@@ -2,7 +2,7 @@ using System.Text;
 
 namespace Shulkmaster.XDM.Lexer;
 
-public class XmlLexer
+public class XmlLexer : IXmlLexer
 {
     private readonly ITextStreamReader _reader;
     private readonly StringBuilder _textBuilder = new();
@@ -17,6 +17,8 @@ public class XmlLexer
     {
         _reader = reader;
     }
+    
+    public LexerState State => _state;
 
     public IEnumerable<XmlToken> GetTokens()
     {
