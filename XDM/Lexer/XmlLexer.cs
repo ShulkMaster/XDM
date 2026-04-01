@@ -39,6 +39,24 @@ public class XmlLexer
             {
                 _hasPeeked = false;
                 char c = (char)rune.Value;
+                if (c == '<' && _reader.TryNext(out Rune next))
+                {
+                    if (next.IsAscii && (char)next.Value == '/')
+                    {
+                        yield return new XmlToken { Kind = XmlTokenKind.CloseTagStart, Span = "</".AsMemory() };
+                        continue;
+                    }
+
+                    _peeked = next;
+                    _hasPeeked = true;
+                }
+                else if (c == '<' && !_reader.EOS)
+                {
+                    _peeked = rune;
+                    _hasPeeked = true;
+                    yield break;
+                }
+
                 yield return new XmlToken { Kind = GetKind(c), Span = GetConstantMemory(c) };
                 continue;
             }

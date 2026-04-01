@@ -45,7 +45,7 @@ public class XmlLexerTests
         Assert.Equal(xml, reconstructed);
 
         Assert.Contains(tokens, t => t is { Item1: XmlTokenKind.OpenTag, Item2: "<" });
-        Assert.Contains(tokens, t => t is { Item1: XmlTokenKind.Slash, Item2: "/" });
+        Assert.Contains(tokens, t => t is { Item1: XmlTokenKind.CloseTagStart, Item2: "</" });
     }
 
     [Fact]
@@ -125,8 +125,8 @@ public class XmlLexerTests
         var lexer = new XmlLexer(reader);
 
         var tokens = lexer.GetTokens().ToList();
-        // <, a, >, 🌍, <, /, a, >
-        Assert.Equal(8, tokens.Count);
+        // <, a, >, 🌍, </, a, >
+        Assert.Equal(7, tokens.Count);
         
         Assert.Equal(XmlTokenKind.OpenTag, tokens[0].Kind);
         Assert.Equal(XmlTokenKind.Text, tokens[1].Kind);
@@ -134,10 +134,53 @@ public class XmlLexerTests
         Assert.Equal(XmlTokenKind.CloseTag, tokens[2].Kind);
         Assert.Equal(XmlTokenKind.Text, tokens[3].Kind);
         Assert.Equal("🌍", tokens[3].Span.ToString());
-        Assert.Equal(XmlTokenKind.OpenTag, tokens[4].Kind);
-        Assert.Equal(XmlTokenKind.Slash, tokens[5].Kind);
-        Assert.Equal(XmlTokenKind.Text, tokens[6].Kind);
-        Assert.Equal("a", tokens[6].Span.ToString());
-        Assert.Equal(XmlTokenKind.CloseTag, tokens[7].Kind);
+        Assert.Equal(XmlTokenKind.CloseTagStart, tokens[4].Kind);
+        Assert.Equal(XmlTokenKind.Text, tokens[5].Kind);
+        Assert.Equal("a", tokens[5].Span.ToString());
+        Assert.Equal(XmlTokenKind.CloseTag, tokens[6].Kind);
+    }
+
+    [Fact]
+    public async Task HandlesSelfClosingTags()
+    {
+        var xml = "<a />";
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(xml));
+        using var reader = new TextStreamReader(stream);
+        await reader.FetchNextChunkAsync();
+        var lexer = new XmlLexer(reader);
+
+        var tokens = lexer.GetTokens().ToList();
+        // <, a , /, >
+        Assert.Equal(4, tokens.Count);
+        Assert.Equal(XmlTokenKind.OpenTag, tokens[0].Kind);
+        Assert.Equal(XmlTokenKind.Text, tokens[1].Kind);
+        Assert.Equal("a ", tokens[1].Span.ToString());
+        Assert.Equal(XmlTokenKind.Slash, tokens[2].Kind);
+        Assert.Equal(XmlTokenKind.CloseTag, tokens[3].Kind);
+    }
+
+    [Fact]
+    public async Task HandlesSplitCloseTagStart()
+    {
+        var xml = "<a>text</a>";
+        // <a>text is 7 chars.
+        // If we use chunk size 7, the first chunk is "<a>text"
+        // Wait, length is 11.
+        // <a>text (7)
+        // </a> (4)
+        // Wait, if chunk size is 8:
+        // <a>text< (8)
+        // /a> (3)
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(xml));
+        using var reader = new TextStreamReader(stream, 8);
+        var lexer = new XmlLexer(reader);
+
+        var tokens = new List<XmlToken>();
+        while (await lexer.FetchNextChunkAsync() || !reader.EOS)
+        {
+            tokens.AddRange(lexer.GetTokens());
+        }
+
+        Assert.Contains(tokens, t => t.Kind == XmlTokenKind.CloseTagStart);
     }
 }

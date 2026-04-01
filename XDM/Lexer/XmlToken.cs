@@ -5,11 +5,11 @@ public enum XmlTokenKind
     None,
     OpenTag,      // <
     CloseTag,     // >
+    CloseTagStart, // </
     Slash,        // /
     Hyphen,       // -
     Ampersand,    // &
     Text,         // sequence of characters that are not the above
-    Eoc,          // End of chunk
     Eof           // End of stream
 }
 
