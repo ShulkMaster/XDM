@@ -1,5 +1,4 @@
 using System.Buffers;
-using System.Collections;
 using System.Text;
 
 namespace Shulkmaster.XDM;
@@ -71,54 +70,33 @@ public sealed class TextStreamReader : ITextStreamReader
         return false;
     }
 
-    public IEnumerator<char> GetEnumerator()
+    public bool TryNext(out Rune rune)
     {
-        while (_byteIndex < _currentChunk.Length)
+        if (_byteIndex >= _currentChunk.Length)
         {
-            ReadOnlySpan<byte> remaining = _currentChunk.Span.Slice(_byteIndex);
+            rune = default;
+            return false;
+        }
 
-            var status = Rune.DecodeFromUtf8(remaining, out Rune rune, out int bytesConsumed);
+        ReadOnlySpan<byte> remaining = _currentChunk.Span[_byteIndex..];
+        var status = Rune.DecodeFromUtf8(remaining, out rune, out int bytesConsumed);
 
-            switch (status)
-            {
-                case OperationStatus.Done:
-                {
-                    _byteIndex += bytesConsumed;
-                    // Yield the character(s) - handling surrogate pairs for characters > U+FFFF
-                    if (rune.IsAscii)
-                    {
-                        yield return (char)rune.Value;
-                    }
-                    else if (rune.Value <= char.MaxValue)
-                    {
-                        yield return (char)rune.Value;
-                    }
-                    else
-                    {
-                        // Surrogate pair
-                        yield return (char)((rune.Value - 0x10000) / 0x400 + 0xD800);
-                        yield return (char)((rune.Value - 0x10000) % 0x400 + 0xDC00);
-                    }
-
-                    break;
-                }
-                case OperationStatus.InvalidData:
-                    // Invalid UTF-8 sequence → replace and move forward by 1 byte
-                    _byteIndex += 1;
-                    yield return '\uFFFD'; // Unicode replacement character
-                    break;
-                case OperationStatus.NeedMoreData:
-                    // Character is split across chunks → stop enumeration here.
-                    // Consumer must fetch the next chunk and continue enumerating.
-                    yield break;
-                case OperationStatus.DestinationTooSmall:
-                default:
-                    throw new ArgumentOutOfRangeException();
-            }
+        switch (status)
+        {
+            case OperationStatus.Done:
+                _byteIndex += bytesConsumed;
+                return true;
+            case OperationStatus.InvalidData:
+                _byteIndex += 1;
+                rune = Rune.ReplacementChar;
+                return true;
+            case OperationStatus.NeedMoreData:
+                return false;
+            case OperationStatus.DestinationTooSmall:
+            default:
+                throw new ArgumentOutOfRangeException();
         }
     }
-
-    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
     public void Dispose()
     {

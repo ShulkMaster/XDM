@@ -22,10 +22,21 @@ public class TextStreamReaderTests
         }
     }
 
+    private static string ConsumeAll(TextStreamReader reader)
+    {
+        var sb = new StringBuilder();
+        while (reader.TryNext(out var rune))
+        {
+            sb.Append(rune);
+        }
+
+        return sb.ToString();
+    }
+
     [Fact]
     public async Task OnlyFetchesWhenAsked()
     {
-        var data = Encoding.UTF8.GetBytes("HelloWorld");
+        var data = "HelloWorld"u8.ToArray();
         using var stream = new TrackedStream(data);
         using var reader = new TextStreamReader(stream, 5);
 
@@ -35,8 +46,8 @@ public class TextStreamReaderTests
         Assert.True(fetched);
         Assert.Equal(1, stream.ReadCount);
 
-        var chars = reader.ToList();
-        Assert.Equal("Hello", new string(chars.ToArray()));
+        var s = ConsumeAll(reader);
+        Assert.Equal("Hello", s);
         Assert.Equal(1, stream.ReadCount);
     }
 
@@ -50,13 +61,12 @@ public class TextStreamReaderTests
 
         // Fetch 1: F0 9F 8C 8D
         await reader.FetchNextChunkAsync();
-        string s = new string(reader.ToArray());
-        Assert.Equal("🌍", s);
+
+        Assert.Equal("🌍", ConsumeAll(reader));
 
         // Fetch 2: A
         await reader.FetchNextChunkAsync();
-        var s2 = new string(reader.ToArray());
-        Assert.Equal("A", s2);
+        Assert.Equal("A", ConsumeAll(reader));
     }
 
     [Fact]
@@ -67,13 +77,13 @@ public class TextStreamReaderTests
         using var reader = new TextStreamReader(stream, 4);
 
         await reader.FetchNextChunkAsync();
-        Assert.Equal(3, reader.Count());
-        
-        // The second call to GetEnumerator should be empty because we already consumed it
-        Assert.Empty(reader);
-        
+        Assert.Equal("ABC", ConsumeAll(reader));
+
+        // The second call to TryNext should be false because we already consumed it
+        Assert.False(reader.TryNext(out _));
+
         await reader.FetchNextChunkAsync();
-        Assert.Empty(reader);
+        Assert.False(reader.TryNext(out _));
     }
 
     [Fact]
@@ -82,16 +92,16 @@ public class TextStreamReaderTests
         var data = "A"u8.ToArray();
         using var stream = new MemoryStream(data);
         using var reader = new TextStreamReader(stream, 4);
-        
+
         Assert.False(reader.EOS);
-        
+
         await reader.FetchNextChunkAsync();
         Assert.False(reader.EOS); // 'A' in buffer
-        
-        foreach(var c in reader) {} // consume 'A'
+
+        _ = ConsumeAll(reader); // consume 'A'
         Assert.False(reader.EOS); // Stream not yet known to be empty (ReadAsync not called yet)
-        
-        bool fetched = await reader.FetchNextChunkAsync();
+
+        var fetched = await reader.FetchNextChunkAsync();
         Assert.False(fetched);
         Assert.True(reader.EOS);
     }
