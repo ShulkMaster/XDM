@@ -26,79 +26,79 @@ public class XmlLexer
     }
 
     /// <summary>
-    /// Tries to read the next token from the stream.
+    /// Returns an enumerable of tokens that can be read from the current chunk.
     /// </summary>
-    /// <param name="token">When this method returns, contains the next token read from the stream.</param>
-    /// <returns>True if a token was successfully read; otherwise, false. False indicates more data is needed (call FetchNextChunkAsync).</returns>
-    public bool TryReadNextToken(out XmlToken token)
+    /// <returns>An enumerable of tokens.</returns>
+    public IEnumerable<XmlToken> GetTokens()
     {
-        token = default;
-
-        if (_enumerator == null)
+        while (true)
         {
-            _enumerator = _reader.GetEnumerator();
-        }
-
-        if (!_hasPeeked)
-        {
-            if (!_enumerator.MoveNext())
+            if (_enumerator == null)
             {
-                _enumerator = null;
-                if (_reader.EOS)
+                _enumerator = _reader.GetEnumerator();
+            }
+
+            if (!_hasPeeked)
+            {
+                if (!_enumerator.MoveNext())
                 {
-                    token = new XmlToken { Kind = XmlTokenKind.EOF, Span = ReadOnlySpan<char>.Empty };
-                    return true;
+                    _enumerator = null;
+                    if (_reader.EOS)
+                    {
+                        yield return new XmlToken { Kind = XmlTokenKind.EOF, Span = ReadOnlyMemory<char>.Empty };
+                    }
+
+                    yield break;
                 }
-                return false;
-            }
-            _peeked = _enumerator.Current;
-            _hasPeeked = true;
-        }
 
-        char c = _peeked;
-        if (IsIdentity(c))
-        {
+                _peeked = _enumerator.Current;
+                _hasPeeked = true;
+            }
+
+            char c = _peeked;
+            if (IsIdentity(c))
+            {
+                _hasPeeked = false;
+                yield return new XmlToken { Kind = GetKind(c), Span = GetConstantMemory(c) };
+                continue;
+            }
+
+            // Text
+            int count = 0;
+            _tokenBuffer[count++] = c;
             _hasPeeked = false;
-            token = new XmlToken { Kind = GetKind(c), Span = GetConstantSpan(c) };
-            return true;
-        }
 
-        // Text
-        int count = 0;
-        _tokenBuffer[count++] = c;
-        _hasPeeked = false;
-
-        while (_enumerator.MoveNext())
-        {
-            char next = _enumerator.Current;
-            if (IsIdentity(next))
+            while (_enumerator.MoveNext())
             {
-                _peeked = next;
-                _hasPeeked = true;
-                break;
+                char next = _enumerator.Current;
+                if (IsIdentity(next))
+                {
+                    _peeked = next;
+                    _hasPeeked = true;
+                    break;
+                }
+
+                if (count < _tokenBuffer.Length)
+                {
+                    _tokenBuffer[count++] = next;
+                }
+                else
+                {
+                    // Buffer is full, yield what we have and keep the next char for the next token
+                    _peeked = next;
+                    _hasPeeked = true;
+                    break;
+                }
             }
 
-            if (count < _tokenBuffer.Length)
+            if (!_hasPeeked)
             {
-                _tokenBuffer[count++] = next;
+                // We exhausted the current chunk without finding an identity character
+                _enumerator = null;
             }
-            else
-            {
-                // Buffer is full, yield what we have and keep the next char for the next token
-                _peeked = next;
-                _hasPeeked = true;
-                break;
-            }
-        }
 
-        if (!_hasPeeked)
-        {
-            // We exhausted the current chunk without finding an identity character
-            _enumerator = null;
+            yield return new XmlToken { Kind = XmlTokenKind.Text, Span = _tokenBuffer.AsMemory(0, count) };
         }
-
-        token = new XmlToken { Kind = XmlTokenKind.Text, Span = _tokenBuffer.AsSpan(0, count) };
-        return true;
     }
 
     private static bool IsIdentity(char c) => c is '<' or '>' or '/' or '&' or '-';
@@ -113,13 +113,22 @@ public class XmlLexer
         _ => XmlTokenKind.None
     };
 
-    private static ReadOnlySpan<char> GetConstantSpan(char c) => c switch
+    private static ReadOnlyMemory<char> GetConstantMemory(char c) => c switch
     {
-        '<' => "<",
-        '>' => ">",
-        '/' => "/",
-        '&' => "&",
-        '-' => "-",
-        _ => ""
+        '<' => "<".AsMemory(),
+        '>' => ">".AsMemory(),
+        '/' => "/".AsMemory(),
+        '&' => "&".AsMemory(),
+        '-' => "-".AsMemory(),
+        _ => "".AsMemory()
     };
+    /// <summary>
+    /// Fetches the next chunk of data from the underlying reader.
+    /// </summary>
+    /// <param name="cancellationToken">A cancellation token.</param>
+    /// <returns>True if more data was successfully fetched; otherwise, false.</returns>
+    public Task<bool> FetchNextChunkAsync(CancellationToken cancellationToken = default)
+    {
+        return _reader.FetchNextChunkAsync(cancellationToken);
+    }
 }

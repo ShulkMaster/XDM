@@ -12,8 +12,8 @@ public enum XmlTokenKind
     EOF           // End of stream
 }
 
-public ref struct XmlToken
+public struct XmlToken
 {
     public XmlTokenKind Kind { get; init; }
-    public ReadOnlySpan<char> Span { get; init; }
+    public ReadOnlyMemory<char> Span { get; init; }
 }
