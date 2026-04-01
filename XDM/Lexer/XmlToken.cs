@@ -9,7 +9,13 @@ public enum XmlTokenKind
     Slash,        // /
     Hyphen,       // -
     Ampersand,    // &
+    Equals,       // =
+    OpenBrace,    // {
+    CloseBrace,   // }
+    OpenBracket,  // [
+    CloseBracket, // ]
     Text,         // sequence of characters that are not the above
+    Identifier,   // alphanumeric
     Eof           // End of stream
 }
 

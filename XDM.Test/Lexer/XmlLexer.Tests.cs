@@ -36,10 +36,9 @@ public class XmlLexerTests
             }
         }
 
-        // With chunk size 5, "text" might be split into "te" and "xt"
-        // <a>te (5 chars)
-        // xt</a> (5 chars)
-        Assert.True(tokens.Count >= 8);
+        // With the new state machine, it will reconstruct to 7 tokens
+        // < (OpenTag), a (Identifier), > (CloseTag), text (Identifier), </ (CloseTagStart), a (Identifier), > (CloseTag)
+        Assert.True(tokens.Count >= 7);
         
         var reconstructed = string.Join("", tokens.Select(t => t.Item2));
         Assert.Equal(xml, reconstructed);
@@ -83,22 +82,24 @@ public class XmlLexerTests
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes(longText));
         using var reader = new TextStreamReader(stream, 4000);
         await reader.FetchNextChunkAsync();
-        var lexer = new XmlLexer(reader, 1024);
+        var lexer = new XmlLexer(reader);
 
+        // It should not yield tokens yet, because identifier continues
         var tokens1 = lexer.GetTokens().ToList();
-        Assert.Equal(2, tokens1.Count);
-        var t1 = tokens1[0];
-        Assert.Equal(XmlTokenKind.Text, t1.Kind);
-        Assert.Equal(1024, t1.Span.Length);
+        Assert.Empty(tokens1);
 
-        var t2 = tokens1[1];
-        Assert.Equal(XmlTokenKind.Text, t2.Kind);
-        Assert.Equal(2000 - 1024, t2.Span.Length);
-
-        Assert.Empty(lexer.GetTokens());
+        // Reach EOS
         Assert.False(await lexer.FetchNextChunkAsync());
-        var t3 = lexer.GetTokens().First();
-        Assert.Equal(XmlTokenKind.Eof, t3.Kind);
+        
+        // Now it should yield the identifier and Eof
+        var tokens2 = lexer.GetTokens().ToList();
+        Assert.Equal(2, tokens2.Count);
+        var t1 = tokens2[0];
+        Assert.Equal(XmlTokenKind.Identifier, t1.Kind);
+        Assert.Equal(2000, t1.Span.Length);
+
+        var t2 = tokens2[1];
+        Assert.Equal(XmlTokenKind.Eof, t2.Kind);
     }
 
     [Fact]
@@ -129,13 +130,13 @@ public class XmlLexerTests
         Assert.Equal(7, tokens.Count);
         
         Assert.Equal(XmlTokenKind.OpenTag, tokens[0].Kind);
-        Assert.Equal(XmlTokenKind.Text, tokens[1].Kind);
+        Assert.Equal(XmlTokenKind.Identifier, tokens[1].Kind);
         Assert.Equal("a", tokens[1].Span.ToString());
         Assert.Equal(XmlTokenKind.CloseTag, tokens[2].Kind);
         Assert.Equal(XmlTokenKind.Text, tokens[3].Kind);
         Assert.Equal("🌍", tokens[3].Span.ToString());
         Assert.Equal(XmlTokenKind.CloseTagStart, tokens[4].Kind);
-        Assert.Equal(XmlTokenKind.Text, tokens[5].Kind);
+        Assert.Equal(XmlTokenKind.Identifier, tokens[5].Kind);
         Assert.Equal("a", tokens[5].Span.ToString());
         Assert.Equal(XmlTokenKind.CloseTag, tokens[6].Kind);
     }
@@ -150,13 +151,15 @@ public class XmlLexerTests
         var lexer = new XmlLexer(reader);
 
         var tokens = lexer.GetTokens().ToList();
-        // <, a , /, >
-        Assert.Equal(4, tokens.Count);
+        // <, a, " ", /, >
+        Assert.Equal(5, tokens.Count);
         Assert.Equal(XmlTokenKind.OpenTag, tokens[0].Kind);
-        Assert.Equal(XmlTokenKind.Text, tokens[1].Kind);
-        Assert.Equal("a ", tokens[1].Span.ToString());
-        Assert.Equal(XmlTokenKind.Slash, tokens[2].Kind);
-        Assert.Equal(XmlTokenKind.CloseTag, tokens[3].Kind);
+        Assert.Equal(XmlTokenKind.Identifier, tokens[1].Kind);
+        Assert.Equal("a", tokens[1].Span.ToString());
+        Assert.Equal(XmlTokenKind.Text, tokens[2].Kind);
+        Assert.Equal(" ", tokens[2].Span.ToString());
+        Assert.Equal(XmlTokenKind.Slash, tokens[3].Kind);
+        Assert.Equal(XmlTokenKind.CloseTag, tokens[4].Kind);
     }
 
     [Fact]
@@ -180,7 +183,27 @@ public class XmlLexerTests
         {
             tokens.AddRange(lexer.GetTokens());
         }
-
         Assert.Contains(tokens, t => t.Kind == XmlTokenKind.CloseTagStart);
+    }
+
+    [Fact]
+    public async Task HandlesBindingAttributesAndInterpolation()
+    {
+        var xml = "<Person age={30} name={exp}>{{escaped}}</Person>";
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(xml));
+        using var reader = new TextStreamReader(stream);
+        await reader.FetchNextChunkAsync();
+        var lexer = new XmlLexer(reader);
+
+        var tokens = lexer.GetTokens().ToList();
+
+        // Let's verify some key tokens
+        Assert.Contains(tokens, t => t.Kind == XmlTokenKind.OpenBrace);
+        Assert.Contains(tokens, t => t.Kind == XmlTokenKind.CloseBrace);
+        Assert.Contains(tokens, t => t.Kind == XmlTokenKind.Equals);
+        Assert.Contains(tokens, t => t.Kind == XmlTokenKind.Identifier && t.Span.ToString() == "exp");
+
+        var reconstructed = string.Join("", tokens.Select(t => t.Span.ToString()));
+        Assert.Equal("<Person age={30} name={exp}>{escaped}</Person>", reconstructed);
     }
 }

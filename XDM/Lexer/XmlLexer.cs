@@ -5,96 +5,289 @@ namespace Shulkmaster.XDM.Lexer;
 public class XmlLexer
 {
     private readonly ITextStreamReader _reader;
-    private bool _hasPeeked;
-    private Rune _peeked;
-    private readonly char[] _tokenBuffer;
+    private readonly StringBuilder _textBuilder = new();
+    private LexerState _state = LexerState.Default;
+    
+    private Rune _peek1;
+    private bool _hasPeek1;
+    private Rune _peek2;
+    private bool _hasPeek2;
 
-    public XmlLexer(ITextStreamReader reader, int bufferSize = 1024)
+    public XmlLexer(ITextStreamReader reader)
     {
         _reader = reader;
-        _tokenBuffer = new char[bufferSize];
     }
 
     public IEnumerable<XmlToken> GetTokens()
     {
         while (true)
         {
-            if (!_hasPeeked)
+            switch (_state)
             {
-                if (!_reader.TryNext(out _peeked))
-                {
-                    if (_reader.EOS)
+                case LexerState.Default:
+                    if (!TryPeek(out Rune r))
                     {
-                        yield return new XmlToken { Kind = XmlTokenKind.Eof, Span = ReadOnlyMemory<char>.Empty };
+                        if (_reader.EOS)
+                        {
+                            _state = LexerState.Eof;
+                            continue;
+                        }
+                        yield break;
                     }
 
-                    yield break;
-                }
-
-                _hasPeeked = true;
-            }
-
-            Rune rune = _peeked;
-            if (IsIdentity(rune))
-            {
-                _hasPeeked = false;
-                char c = (char)rune.Value;
-                if (c == '<' && _reader.TryNext(out Rune next))
-                {
-                    if (next.IsAscii && (char)next.Value == '/')
+                    char c = (char)r.Value;
+                    if (c == '{')
                     {
-                        yield return new XmlToken { Kind = XmlTokenKind.CloseTagStart, Span = "</".AsMemory() };
+                        if (TryPeekNext(out Rune n))
+                        {
+                            if ((char)n.Value == '{')
+                            {
+                                Consume(); Consume();
+                                _textBuilder.Append('{');
+                                _state = LexerState.TextSeq;
+                                continue;
+                            }
+                        }
+                        else if (!_reader.EOS)
+                        {
+                            yield break;
+                        }
+                    }
+
+                    if (c == '}')
+                    {
+                        if (TryPeekNext(out Rune n2))
+                        {
+                            if ((char)n2.Value == '}')
+                            {
+                                Consume(); Consume();
+                                _textBuilder.Append('}');
+                                _state = LexerState.TextSeq;
+                                continue;
+                            }
+                        }
+                        else if (!_reader.EOS)
+                        {
+                            yield break;
+                        }
+                    }
+
+                    if (IsIdentity(c))
+                    {
+                        _state = LexerState.IdentitySeq;
                         continue;
                     }
 
-                    _peeked = next;
-                    _hasPeeked = true;
-                }
-                else if (c == '<' && !_reader.EOS)
-                {
-                    _peeked = rune;
-                    _hasPeeked = true;
+                    if (IsIdentifierStart(r))
+                    {
+                        _state = LexerState.IdentifierSeq;
+                        continue;
+                    }
+
+                    _state = LexerState.TextSeq;
+                    break;
+
+                case LexerState.IdentitySeq:
+                    if (!TryPeek(out Rune rid))
+                    {
+                        // Should not happen if we transitioned from Default
+                        _state = LexerState.Default;
+                        continue;
+                    }
+
+                    char cid = (char)rid.Value;
+                    if (cid == '<')
+                    {
+                        if (TryPeekNext(out Rune next))
+                        {
+                            if ((char)next.Value == '/')
+                            {
+                                Consume(); Consume();
+                                string s2 = CreateStringFromStack('<', '/');
+                                _state = LexerState.Default;
+                                yield return new XmlToken { Kind = XmlTokenKind.CloseTagStart, Span = s2.AsMemory() };
+                                continue;
+                            }
+                        }
+                        else if (!_reader.EOS)
+                        {
+                            // We need more data to know if it's < or </
+                            yield break;
+                        }
+                    }
+
+                    Consume();
+                    _state = LexerState.Default;
+                    string s1 = CreateStringFromStack(cid);
+                    yield return new XmlToken { Kind = GetKind(cid), Span = s1.AsMemory() };
+                    break;
+
+                case LexerState.TextSeq:
+                    if (!TryPeek(out Rune rt))
+                    {
+                        if (_reader.EOS)
+                        {
+                            yield return YieldText();
+                            _state = LexerState.Eof;
+                            continue;
+                        }
+                        yield break;
+                    }
+
+                    char ct = (char)rt.Value;
+                    if (ct == '{' && TryPeekNext(out Rune nt) && (char)nt.Value == '{')
+                    {
+                        Consume(); Consume();
+                        _textBuilder.Append('{');
+                        continue;
+                    }
+
+                    if (ct == '}' && TryPeekNext(out Rune nt2) && (char)nt2.Value == '}')
+                    {
+                        Consume(); Consume();
+                        _textBuilder.Append('}');
+                        continue;
+                    }
+
+                    if (IsIdentity(ct) || IsIdentifierStart(rt))
+                    {
+                        yield return YieldText();
+                        _state = LexerState.Default;
+                        continue;
+                    }
+
+                    Consume();
+                    _textBuilder.Append(rt.ToString());
+                    break;
+
+                case LexerState.IdentifierSeq:
+                    if (!TryPeek(out Rune rident))
+                    {
+                        if (_reader.EOS)
+                        {
+                            yield return YieldIdentifier();
+                            _state = LexerState.Eof;
+                            continue;
+                        }
+                        yield break;
+                    }
+
+                    if (IsIdentifierPart(rident))
+                    {
+                        Consume();
+                        _textBuilder.Append(rident.ToString());
+                        continue;
+                    }
+
+                    yield return YieldIdentifier();
+                    _state = LexerState.Default;
+                    break;
+
+                case LexerState.Eof:
+                    yield return new XmlToken { Kind = XmlTokenKind.Eof, Span = ReadOnlyMemory<char>.Empty };
                     yield break;
-                }
-
-                yield return new XmlToken { Kind = GetKind(c), Span = GetConstantMemory(c) };
-                continue;
             }
-
-            // Text
-            int count = 0;
-            count += rune.EncodeToUtf16(_tokenBuffer.AsSpan(count));
-            _hasPeeked = false;
-
-            while (_reader.TryNext(out Rune next))
-            {
-                if (IsIdentity(next))
-                {
-                    _peeked = next;
-                    _hasPeeked = true;
-                    break;
-                }
-
-                if (count + next.Utf16SequenceLength <= _tokenBuffer.Length)
-                {
-                    count += next.EncodeToUtf16(_tokenBuffer.AsSpan(count));
-                }
-                else
-                {
-                    // Buffer is full, yield what we have and keep the next char for the next token
-                    _peeked = next;
-                    _hasPeeked = true;
-                    break;
-                }
-            }
-
-            yield return new XmlToken { Kind = XmlTokenKind.Text, Span = _tokenBuffer.AsSpan(0, count).ToArray() };
         }
+    }
+
+    private XmlToken YieldText()
+    {
+        var text = _textBuilder.ToString();
+        _textBuilder.Clear();
+        return new XmlToken { Kind = XmlTokenKind.Text, Span = text.AsMemory() };
+    }
+
+    private XmlToken YieldIdentifier()
+    {
+        var ident = _textBuilder.ToString();
+        _textBuilder.Clear();
+        return new XmlToken { Kind = XmlTokenKind.Identifier, Span = ident.AsMemory() };
+    }
+
+    private bool TryPeek(out Rune rune)
+    {
+        if (_hasPeek1)
+        {
+            rune = _peek1;
+            return true;
+        }
+
+        if (_reader.TryNext(out rune))
+        {
+            _peek1 = rune;
+            _hasPeek1 = true;
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool TryPeekNext(out Rune rune)
+    {
+        if (_hasPeek2)
+        {
+            rune = _peek2;
+            return true;
+        }
+
+        if (!_hasPeek1)
+        {
+            if (!TryPeek(out _))
+            {
+                rune = default;
+                return false;
+            }
+        }
+
+        if (_reader.TryNext(out rune))
+        {
+            _peek2 = rune;
+            _hasPeek2 = true;
+            return true;
+        }
+
+        return false;
+    }
+
+    private void Consume()
+    {
+        if (_hasPeek1)
+        {
+            if (_hasPeek2)
+            {
+                _peek1 = _peek2;
+                _hasPeek1 = true;
+                _hasPeek2 = false;
+            }
+            else
+            {
+                _hasPeek1 = false;
+            }
+        }
+    }
+
+    private static string CreateStringFromStack(char c)
+    {
+        Span<char> span = stackalloc char[1];
+        span[0] = c;
+        return new string(span);
+    }
+
+    private static string CreateStringFromStack(char c1, char c2)
+    {
+        Span<char> span = stackalloc char[2];
+        span[0] = c1;
+        span[1] = c2;
+        return new string(span);
     }
 
     private static bool IsIdentity(Rune r) => r.IsAscii && IsIdentity((char)r.Value);
 
-    private static bool IsIdentity(char c) => c is '<' or '>' or '/' or '&' or '-';
+    private static bool IsIdentity(char c) => c is '<' or '>' or '/' or '&' or '-' or '{' or '}' or '[' or ']' or '=';
+
+    private static bool IsIdentifierStart(Rune r) => r.IsAscii && (char.IsLetter((char)r.Value) || (char)r.Value == '_');
+    
+    private static bool IsIdentifierPart(Rune r) => r.IsAscii && (char.IsLetterOrDigit((char)r.Value) || (char)r.Value == '_');
 
     private static XmlTokenKind GetKind(char c) => c switch
     {
@@ -103,17 +296,12 @@ public class XmlLexer
         '/' => XmlTokenKind.Slash,
         '&' => XmlTokenKind.Ampersand,
         '-' => XmlTokenKind.Hyphen,
+        '=' => XmlTokenKind.Equals,
+        '{' => XmlTokenKind.OpenBrace,
+        '}' => XmlTokenKind.CloseBrace,
+        '[' => XmlTokenKind.OpenBracket,
+        ']' => XmlTokenKind.CloseBracket,
         _ => XmlTokenKind.None
-    };
-
-    private static ReadOnlyMemory<char> GetConstantMemory(char c) => c switch
-    {
-        '<' => "<".AsMemory(),
-        '>' => ">".AsMemory(),
-        '/' => "/".AsMemory(),
-        '&' => "&".AsMemory(),
-        '-' => "-".AsMemory(),
-        _ => "".AsMemory()
     };
 
     public Task<bool> FetchNextChunkAsync(CancellationToken cancellationToken = default)
