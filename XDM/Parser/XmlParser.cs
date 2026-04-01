@@ -7,6 +7,7 @@ public class XmlParser
 {
     private readonly IXmlLexer _lexer;
     private readonly Stack<XmlTag> _stack = new();
+    private ParserState _state = ParserState.Init;
 
     public XmlParser(IXmlLexer lexer)
     {
@@ -14,26 +15,44 @@ public class XmlParser
     }
 
 
-    public async Task<XmlTag> ParseAsync(CancellationToken token = default)
+    public async Task<XmlDocument> ParseAsync(CancellationToken token = default)
     {
         var root = new XmlTag();
-        var current = root;
         _stack.Push(root);
 
         try
         {
-
-            while (_lexer.State != LexerState.Eof)
+            while (_state != ParserState.Eof)
             {
                 await _lexer.FetchNextChunkAsync(token);
-                var tokens = _lexer.GetTokens();
+                if (token.IsCancellationRequested)
+                {
+                    break;
+                }
+
+                ConsumeTokens();
             }
+
+            return new XmlDocument { Root = root, Finished = true };
         }
-        catch (TaskCanceledException exception)
+        catch (TaskCanceledException)
         {
             // no need to do anything we can return the partial parsed document
         }
-        
-        return root;
+
+        return new XmlDocument { Root = root, Finished = false };
+    }
+
+    private void ConsumeTokens()
+    {
+        foreach (var token in _lexer.GetTokens())
+        {
+            switch (token.Kind)
+            {
+                case XmlTokenKind.Eof:
+                    _state = ParserState.Eof;
+                    break;
+            }
+        }
     }
 }
