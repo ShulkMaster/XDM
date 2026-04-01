@@ -70,7 +70,7 @@ public class XmlLexer
                 }
             }
 
-            yield return new XmlToken { Kind = XmlTokenKind.Text, Span = _tokenBuffer.AsMemory(0, count) };
+            yield return new XmlToken { Kind = XmlTokenKind.Text, Span = _tokenBuffer.AsSpan(0, count).ToArray() };
         }
     }
 
