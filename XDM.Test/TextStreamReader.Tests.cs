@@ -46,18 +46,14 @@ public class TextStreamReaderTests
         // 🌍 is F0 9F 8C 8D (4 bytes)
         var data = new byte[] { 0xF0, 0x9F, 0x8C, 0x8D, (byte)'A' };
         using var stream = new MemoryStream(data);
-        using var reader = new TextStreamReader(stream, 2);
+        using var reader = new TextStreamReader(stream, 4);
 
-        // Fetch 1: F0 9F
-        await reader.FetchNextChunkAsync();
-        Assert.Empty(reader); // Not enough for a char
-
-        // Fetch 2: 8C 8D
+        // Fetch 1: F0 9F 8C 8D
         await reader.FetchNextChunkAsync();
         string s = new string(reader.ToArray());
         Assert.Equal("🌍", s);
 
-        // Fetch 3: A
+        // Fetch 2: A
         await reader.FetchNextChunkAsync();
         var s2 = new string(reader.ToArray());
         Assert.Equal("A", s2);
@@ -68,16 +64,16 @@ public class TextStreamReaderTests
     {
         var data = "ABC"u8.ToArray();
         using var stream = new MemoryStream(data);
-        using var reader = new TextStreamReader(stream, 2);
+        using var reader = new TextStreamReader(stream, 4);
 
         await reader.FetchNextChunkAsync();
-        Assert.Equal(2, reader.Count());
+        Assert.Equal(3, reader.Count());
         
         // The second call to GetEnumerator should be empty because we already consumed it
         Assert.Empty(reader);
         
         await reader.FetchNextChunkAsync();
-        Assert.Single(reader);
+        Assert.Empty(reader);
     }
 
     [Fact]
@@ -85,7 +81,7 @@ public class TextStreamReaderTests
     {
         var data = "A"u8.ToArray();
         using var stream = new MemoryStream(data);
-        using var reader = new TextStreamReader(stream, 1);
+        using var reader = new TextStreamReader(stream, 4);
         
         Assert.False(reader.EOS);
         

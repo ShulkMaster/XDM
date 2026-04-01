@@ -47,15 +47,15 @@ public sealed class TextStreamReader : ITextStreamReader
 
         // Read new data AFTER the leftover bytes
         var bytesToRead = _byteBuffer.Length - leftover;
-        _currentChunk = _byteBuffer.AsMemory(leftover, bytesToRead);
+        var destination = _byteBuffer.AsMemory(leftover, bytesToRead);
         _byteIndex = 0;
 
-        var bytesRead = await _stream.ReadAsync(_currentChunk, cancellationToken);
+        var bytesRead = await _stream.ReadAsync(destination, cancellationToken);
 
-        if (bytesRead != 0)
+        if (bytesRead != 0 || leftover > 0)
         {
-            // Update the buffer with the new data
-            return true;
+            _currentChunk = _byteBuffer.AsMemory(0, leftover + bytesRead);
+            return bytesRead > 0;
         }
 
         _isStreamExhausted = true;
