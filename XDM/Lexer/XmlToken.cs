@@ -9,7 +9,8 @@ public enum XmlTokenKind
     Hyphen,       // -
     Ampersand,    // &
     Text,         // sequence of characters that are not the above
-    EOF           // End of stream
+    Eoc,          // End of chunk
+    Eof           // End of stream
 }
 
 public struct XmlToken

@@ -16,11 +16,16 @@ public class XmlLexerTests
 
         var tokens = new List<(XmlTokenKind, string)>();
         
-        while (true)
+        var continueReading = true;
+        while (continueReading)
         {
             foreach (var token in lexer.GetTokens())
             {
-                if (token.Kind == XmlTokenKind.EOF) goto done;
+                if (token.Kind == XmlTokenKind.Eof)
+                {
+                    continueReading = false;
+                    break;
+                }
                 tokens.Add((token.Kind, token.Span.ToString()));
             }
             
@@ -30,7 +35,6 @@ public class XmlLexerTests
                 // but GetTokens already handles TryReadNextToken.
             }
         }
-        done:;
 
         // With chunk size 5, "text" might be split into "te" and "xt"
         // <a>te (5 chars)
@@ -69,7 +73,7 @@ public class XmlLexerTests
         Assert.False(await lexer.FetchNextChunkAsync());
         
         var t3 = lexer.GetTokens().First();
-        Assert.Equal(XmlTokenKind.EOF, t3.Kind);
+        Assert.Equal(XmlTokenKind.Eof, t3.Kind);
     }
 
     [Fact]
@@ -94,7 +98,7 @@ public class XmlLexerTests
         Assert.Empty(lexer.GetTokens());
         Assert.False(await lexer.FetchNextChunkAsync());
         var t3 = lexer.GetTokens().First();
-        Assert.Equal(XmlTokenKind.EOF, t3.Kind);
+        Assert.Equal(XmlTokenKind.Eof, t3.Kind);
     }
 
     [Fact]
@@ -109,5 +113,31 @@ public class XmlLexerTests
         cts.Cancel();
 
         await Assert.ThrowsAsync<TaskCanceledException>(() => lexer.FetchNextChunkAsync(cts.Token));
+    }
+
+    [Fact]
+    public async Task HandlesEmojisInText()
+    {
+        var xml = "<a>🌍</a>";
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(xml));
+        using var reader = new TextStreamReader(stream);
+        await reader.FetchNextChunkAsync();
+        var lexer = new XmlLexer(reader);
+
+        var tokens = lexer.GetTokens().ToList();
+        // <, a, >, 🌍, <, /, a, >
+        Assert.Equal(8, tokens.Count);
+        
+        Assert.Equal(XmlTokenKind.OpenTag, tokens[0].Kind);
+        Assert.Equal(XmlTokenKind.Text, tokens[1].Kind);
+        Assert.Equal("a", tokens[1].Span.ToString());
+        Assert.Equal(XmlTokenKind.CloseTag, tokens[2].Kind);
+        Assert.Equal(XmlTokenKind.Text, tokens[3].Kind);
+        Assert.Equal("🌍", tokens[3].Span.ToString());
+        Assert.Equal(XmlTokenKind.OpenTag, tokens[4].Kind);
+        Assert.Equal(XmlTokenKind.Slash, tokens[5].Kind);
+        Assert.Equal(XmlTokenKind.Text, tokens[6].Kind);
+        Assert.Equal("a", tokens[6].Span.ToString());
+        Assert.Equal(XmlTokenKind.CloseTag, tokens[7].Kind);
     }
 }
