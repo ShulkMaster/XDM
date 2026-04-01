@@ -1,3 +1,5 @@
+using System.Text;
+using Shulkmaster.XDM.Expressions;
 using Shulkmaster.XDM.Lexer;
 using Shulkmaster.XDM.Model;
 
@@ -8,6 +10,12 @@ public class XmlParser
     private readonly IXmlLexer _lexer;
     private readonly Stack<XmlTag> _stack = new();
     private ParserState _state = ParserState.Init;
+    private XmlTag? _currentTag;
+    private string? _currentAttrName;
+    private bool _isClosingTag;
+    private bool _isSelfClosing;
+    private readonly StringBuilder _valueBuilder = new();
+    private char _quoteChar;
 
     public XmlParser(IXmlLexer lexer)
     {
@@ -47,10 +55,136 @@ public class XmlParser
     {
         foreach (var token in _lexer.GetTokens())
         {
-            switch (token.Kind)
+            switch (_state)
             {
-                case XmlTokenKind.Eof:
-                    _state = ParserState.Eof;
+                case ParserState.Init:
+                    if (token.Kind == XmlTokenKind.OpenTag)
+                    {
+                        _currentTag = new XmlTag();
+                        _isClosingTag = false;
+                        _isSelfClosing = false;
+                        _state = ParserState.TagStatement;
+                    }
+                    else if (token.Kind == XmlTokenKind.CloseTagStart)
+                    {
+                        _isClosingTag = true;
+                        _isSelfClosing = false;
+                        _state = ParserState.TagStatement;
+                    }
+                    else if (token.Kind == XmlTokenKind.Text || token.Kind == XmlTokenKind.Identifier)
+                    {
+                        if (_stack.Count > 0)
+                        {
+                            var text = token.Span.ToString();
+                            _stack.Peek().Children.Add(new XmlText { Value = text });
+                        }
+                    }
+                    else if (token.Kind == XmlTokenKind.Eof)
+                    {
+                        _state = ParserState.Eof;
+                    }
+                    break;
+
+                case ParserState.TagStatement:
+                    if (token.Kind == XmlTokenKind.Identifier)
+                    {
+                        if (!_isClosingTag && string.IsNullOrEmpty(_currentTag?.Name))
+                        {
+                            _currentTag!.Name = token.Span.ToString();
+                        }
+                        else if (!_isClosingTag)
+                        {
+                            _currentAttrName = token.Span.ToString();
+                            _state = ParserState.AttribStatement;
+                        }
+                        // Ignore identifier in closing tag (just consume name)
+                    }
+                    else if (token.Kind == XmlTokenKind.Slash)
+                    {
+                        if (!_isClosingTag)
+                        {
+                            _isSelfClosing = true;
+                        }
+                    }
+                    else if (token.Kind == XmlTokenKind.CloseTag)
+                    {
+                        if (_isClosingTag)
+                        {
+                            if (_stack.Count > 1)
+                            {
+                                _stack.Pop();
+                            }
+                        }
+                        else
+                        {
+                            if (_stack.Count > 0)
+                            {
+                                _stack.Peek().Children.Add(_currentTag!);
+                            }
+
+                            if (!_isSelfClosing)
+                            {
+                                _stack.Push(_currentTag!);
+                            }
+                        }
+                        _currentTag = null;
+                        _state = ParserState.Init;
+                    }
+                    else if (token.Kind == XmlTokenKind.Eof)
+                    {
+                        _state = ParserState.Eof;
+                    }
+                    break;
+
+                case ParserState.AttribStatement:
+                    if (token.Kind == XmlTokenKind.Equals)
+                    {
+                        _state = ParserState.Expression;
+                        _valueBuilder.Clear();
+                        _quoteChar = '\0';
+                    }
+                    else if (token.Kind == XmlTokenKind.Eof)
+                    {
+                        _state = ParserState.Eof;
+                    }
+                    break;
+
+                case ParserState.Expression:
+                    if (_quoteChar == '\0')
+                    {
+                        if (token.Kind == XmlTokenKind.Text && token.Span.Length > 0)
+                        {
+                            char c = token.Span.Span[0];
+                            if (c == '"' || c == '\'')
+                            {
+                                _quoteChar = c;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        if (token.Kind == XmlTokenKind.Text && token.Span.Length == 1 && token.Span.Span[0] == _quoteChar)
+                        {
+                            _currentTag!.Attributes.Add(new XmlAttrib
+                            {
+                                Name = _currentAttrName!,
+                                Value = new StringExpression { Value = _valueBuilder.ToString() }
+                            });
+                            _currentAttrName = null;
+                            _state = ParserState.TagStatement;
+                        }
+                        else if (token.Kind == XmlTokenKind.Eof)
+                        {
+                            _state = ParserState.Eof;
+                        }
+                        else
+                        {
+                            _valueBuilder.Append(token.Span.ToString());
+                        }
+                    }
+                    break;
+
+                case ParserState.Eof:
                     break;
             }
         }
