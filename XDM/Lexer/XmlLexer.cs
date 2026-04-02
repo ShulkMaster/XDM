@@ -12,6 +12,7 @@ public class XmlLexer : IXmlLexer
     private bool _hasPeek1;
     private Rune _peek2;
     private bool _hasPeek2;
+    private bool _shouldStop;
 
     public XmlLexer(ITextStreamReader reader)
     {
@@ -22,174 +23,199 @@ public class XmlLexer : IXmlLexer
 
     public IEnumerable<XmlToken> GetTokens()
     {
-        while (true)
+        _shouldStop = false;
+        while (!_shouldStop)
         {
-            switch (_state)
+            var result = _state switch
             {
-                case LexerState.Default:
-                    if (!TryPeek(out Rune r))
-                    {
-                        if (_reader.EOS)
-                        {
-                            _state = LexerState.Eof;
-                            continue;
-                        }
-                        yield break;
-                    }
+                LexerState.Default => HandleDefault(),
+                LexerState.IdentitySeq => HandleIdentitySeq(),
+                LexerState.TextSeq => HandleTextSeq(),
+                LexerState.IdentifierSeq => HandleIdentifierSeq(),
+                LexerState.Eof => HandleEof(),
+                _ => throw new ArgumentOutOfRangeException()
+            };
 
-                    char c = (char)r.Value;
-                    if (c == '{')
-                    {
-                        if (TryPeekNext(out Rune n))
-                        {
-                            if ((char)n.Value == '{')
-                            {
-                                Consume(); Consume();
-                                _textBuilder.Append('{');
-                                _state = LexerState.TextSeq;
-                                continue;
-                            }
-                        }
-                        else if (!_reader.EOS)
-                        {
-                            yield break;
-                        }
-                    }
-
-                    if (c == '}')
-                    {
-                        if (TryPeekNext(out Rune n2))
-                        {
-                            if ((char)n2.Value == '}')
-                            {
-                                Consume(); Consume();
-                                _textBuilder.Append('}');
-                                _state = LexerState.TextSeq;
-                                continue;
-                            }
-                        }
-                        else if (!_reader.EOS)
-                        {
-                            yield break;
-                        }
-                    }
-
-                    if (IsIdentity(c))
-                    {
-                        _state = LexerState.IdentitySeq;
-                        continue;
-                    }
-
-                    if (IsIdentifierStart(r))
-                    {
-                        _state = LexerState.IdentifierSeq;
-                        continue;
-                    }
-
-                    _state = LexerState.TextSeq;
-                    break;
-
-                case LexerState.IdentitySeq:
-                    if (!TryPeek(out Rune rid))
-                    {
-                        // Should not happen if we transitioned from Default
-                        _state = LexerState.Default;
-                        continue;
-                    }
-
-                    char cid = (char)rid.Value;
-                    if (cid == '<')
-                    {
-                        if (TryPeekNext(out Rune next))
-                        {
-                            if ((char)next.Value == '/')
-                            {
-                                Consume(); Consume();
-                                string s2 = CreateStringFromStack('<', '/');
-                                _state = LexerState.Default;
-                                yield return new XmlToken { Kind = XmlTokenKind.CloseTagStart, Span = s2.AsMemory() };
-                                continue;
-                            }
-                        }
-                        else if (!_reader.EOS)
-                        {
-                            // We need more data to know if it's < or </
-                            yield break;
-                        }
-                    }
-
-                    Consume();
-                    _state = LexerState.Default;
-                    string s1 = CreateStringFromStack(cid);
-                    yield return new XmlToken { Kind = GetKind(cid), Span = s1.AsMemory() };
-                    break;
-
-                case LexerState.TextSeq:
-                    if (!TryPeek(out Rune rt))
-                    {
-                        if (_reader.EOS)
-                        {
-                            yield return YieldText();
-                            _state = LexerState.Eof;
-                            continue;
-                        }
-                        yield break;
-                    }
-
-                    char ct = (char)rt.Value;
-                    if (ct == '{' && TryPeekNext(out Rune nt) && (char)nt.Value == '{')
-                    {
-                        Consume(); Consume();
-                        _textBuilder.Append('{');
-                        continue;
-                    }
-
-                    if (ct == '}' && TryPeekNext(out Rune nt2) && (char)nt2.Value == '}')
-                    {
-                        Consume(); Consume();
-                        _textBuilder.Append('}');
-                        continue;
-                    }
-
-                    if (IsIdentity(ct) || IsIdentifierStart(rt))
-                    {
-                        yield return YieldText();
-                        _state = LexerState.Default;
-                        continue;
-                    }
-
-                    Consume();
-                    _textBuilder.Append(rt.ToString());
-                    break;
-
-                case LexerState.IdentifierSeq:
-                    if (!TryPeek(out Rune rident))
-                    {
-                        if (_reader.EOS)
-                        {
-                            yield return YieldIdentifier();
-                            _state = LexerState.Eof;
-                            continue;
-                        }
-                        yield break;
-                    }
-
-                    if (IsIdentifierPart(rident))
-                    {
-                        Consume();
-                        _textBuilder.Append(rident.ToString());
-                        continue;
-                    }
-
-                    yield return YieldIdentifier();
-                    _state = LexerState.Default;
-                    break;
-
-                case LexerState.Eof:
-                    yield return new XmlToken { Kind = XmlTokenKind.Eof, Span = ReadOnlyMemory<char>.Empty };
-                    yield break;
+            foreach (var token in result)
+            {
+                yield return token;
             }
         }
+    }
+
+    private IEnumerable<XmlToken> HandleDefault()
+    {
+        if (!TryPeek(out Rune r))
+        {
+            if (_reader.EOS)
+            {
+                _state = LexerState.Eof;
+                yield break;
+            }
+            _shouldStop = true;
+            yield break;
+        }
+
+        char c = (char)r.Value;
+        if (c == '{')
+        {
+            if (TryPeekNext(out Rune n))
+            {
+                if ((char)n.Value == '{')
+                {
+                    Consume(); Consume();
+                    _textBuilder.Append('{');
+                    _state = LexerState.TextSeq;
+                    yield break;
+                }
+            }
+            else if (!_reader.EOS)
+            {
+                _shouldStop = true;
+                yield break;
+            }
+        }
+
+        if (c == '}')
+        {
+            if (TryPeekNext(out Rune n2))
+            {
+                if ((char)n2.Value == '}')
+                {
+                    Consume(); Consume();
+                    _textBuilder.Append('}');
+                    _state = LexerState.TextSeq;
+                    yield break;
+                }
+            }
+            else if (!_reader.EOS)
+            {
+                _shouldStop = true;
+                yield break;
+            }
+        }
+
+        if (IsIdentity(c))
+        {
+            _state = LexerState.IdentitySeq;
+            yield break;
+        }
+
+        if (IsIdentifierStart(r))
+        {
+            _state = LexerState.IdentifierSeq;
+            yield break;
+        }
+
+        _state = LexerState.TextSeq;
+    }
+
+    private IEnumerable<XmlToken> HandleIdentitySeq()
+    {
+        if (!TryPeek(out Rune rid))
+        {
+            // Should not happen if we transitioned from Default
+            _state = LexerState.Default;
+            yield break;
+        }
+
+        char cid = (char)rid.Value;
+        if (cid == '<')
+        {
+            if (TryPeekNext(out Rune next))
+            {
+                if ((char)next.Value == '/')
+                {
+                    Consume(); Consume();
+                    string s2 = CreateStringFromStack('<', '/');
+                    _state = LexerState.Default;
+                    yield return new XmlToken { Kind = XmlTokenKind.CloseTagStart, Span = s2.AsMemory() };
+                    yield break;
+                }
+            }
+            else if (!_reader.EOS)
+            {
+                // We need more data to know if it's < or </
+                _shouldStop = true;
+                yield break;
+            }
+        }
+
+        Consume();
+        _state = LexerState.Default;
+        string s1 = CreateStringFromStack(cid);
+        yield return new XmlToken { Kind = GetKind(cid), Span = s1.AsMemory() };
+    }
+
+    private IEnumerable<XmlToken> HandleTextSeq()
+    {
+        if (!TryPeek(out Rune rt))
+        {
+            if (_reader.EOS)
+            {
+                yield return YieldText();
+                _state = LexerState.Eof;
+                yield break;
+            }
+            _shouldStop = true;
+            yield break;
+        }
+
+        char ct = (char)rt.Value;
+        if (ct == '{' && TryPeekNext(out Rune nt) && (char)nt.Value == '{')
+        {
+            Consume(); Consume();
+            _textBuilder.Append('{');
+            yield break;
+        }
+
+        if (ct == '}' && TryPeekNext(out Rune nt2) && (char)nt2.Value == '}')
+        {
+            Consume(); Consume();
+            _textBuilder.Append('}');
+            yield break;
+        }
+
+        if (IsIdentity(ct) || IsIdentifierStart(rt))
+        {
+            yield return YieldText();
+            _state = LexerState.Default;
+            yield break;
+        }
+
+        Consume();
+        _textBuilder.Append(rt.ToString());
+    }
+
+    private IEnumerable<XmlToken> HandleIdentifierSeq()
+    {
+        if (!TryPeek(out Rune rident))
+        {
+            if (_reader.EOS)
+            {
+                yield return YieldIdentifier();
+                _state = LexerState.Eof;
+                yield break;
+            }
+            _shouldStop = true;
+            yield break;
+        }
+
+        if (IsIdentifierPart(rident))
+        {
+            Consume();
+            _textBuilder.Append(rident.ToString());
+            yield break;
+        }
+
+        yield return YieldIdentifier();
+        _state = LexerState.Default;
+    }
+
+    private IEnumerable<XmlToken> HandleEof()
+    {
+        yield return new XmlToken { Kind = XmlTokenKind.Eof, Span = ReadOnlyMemory<char>.Empty };
+        _shouldStop = true;
     }
 
     private XmlToken YieldText()
