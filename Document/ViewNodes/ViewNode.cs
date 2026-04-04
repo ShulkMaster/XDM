@@ -19,6 +19,7 @@ public struct Bounds
 public class ViewNode
 {
     public ViewStyles Styles { get; set; } = new();
+    public List<ViewNode> Children { get; init; } = [];
 }
 
 public struct TextNode

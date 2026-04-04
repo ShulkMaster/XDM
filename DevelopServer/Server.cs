@@ -1,6 +1,9 @@
 using System.Net;
 using System.Net.WebSockets;
-using System.Text;
+using PdfSharp;
+using PdfSharp.Drawing;
+using PdfSharp.Drawing.Layout;
+using PdfSharp.Pdf;
 
 namespace DevelopServer;
 
@@ -128,8 +131,8 @@ public class Server : IDisposable
                 Console.WriteLine($"File changed: {e.FullPath}");
                 var content = await File.ReadAllTextAsync(e.FullPath);
                 var relativePath = Path.GetRelativePath(_templatesPath, e.FullPath);
-                var message = $"{relativePath}\n{content}";
-                var bytes = Encoding.UTF8.GetBytes(message);
+                var pdfBytes = GeneratePdf(content);
+                var segment = new ArraySegment<byte>(pdfBytes);
 
                 List<WebSocket> snapshot;
                 lock (_clientsLock)
@@ -141,7 +144,7 @@ public class Server : IDisposable
                     {
                         try
                         {
-                            await ws.SendAsync(bytes, WebSocketMessageType.Text, true, CancellationToken.None);
+                            await ws.SendAsync(segment, WebSocketMessageType.Binary, true, CancellationToken.None);
                         }
                         catch { /* ignore dead sockets */ }
                     }
@@ -154,6 +157,24 @@ public class Server : IDisposable
                 Console.WriteLine($"Error reading {e.FullPath}: {ex.Message}");
             }
         });
+    }
+
+    private static byte[] GeneratePdf(string xmlContent)
+    {
+        var document = new PdfDocument();
+        var page = document.AddPage();
+        page.Size = PageSize.A4;
+
+        var gfx = XGraphics.FromPdfPage(page);
+        var font = new XFont("Courier", 12);
+        var margin = XUnitPt.FromPoint(30);
+        var rect = new XRect(margin, margin, page.Width.Point - margin * 2, page.Height.Point - margin * 2);
+        var tf = new XTextFormatter(gfx);
+        tf.DrawString(xmlContent, font, XBrushes.Black, rect);
+
+        using var stream = new MemoryStream();
+        document.Save(stream, false);
+        return stream.ToArray();
     }
 
     public void Dispose()
