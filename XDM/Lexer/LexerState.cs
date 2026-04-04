@@ -6,5 +6,6 @@ public enum LexerState
     IdentitySeq,
     TextSeq,
     IdentifierSeq,
+    NumberSeq,
     Eof,
 }

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 
 namespace Shulkmaster.XDM.Lexer;
@@ -6,6 +7,9 @@ public class XmlLexer : IXmlLexer
 {
     private readonly ITextStreamReader _reader;
     private readonly StringBuilder _textBuilder = new();
+    private readonly Rune[] _numberBuffer = new Rune[32];
+    private int _numberLength;
+    private bool _numberHasDot;
     private LexerState _state = LexerState.Default;
     
     private Rune _peek1;
@@ -32,6 +36,7 @@ public class XmlLexer : IXmlLexer
                 LexerState.IdentitySeq => HandleIdentitySeq(),
                 LexerState.TextSeq => HandleTextSeq(),
                 LexerState.IdentifierSeq => HandleIdentifierSeq(),
+                LexerState.NumberSeq => HandleNumberSeq(),
                 LexerState.Eof => HandleEof(),
                 _ => throw new ArgumentOutOfRangeException()
             };
@@ -104,6 +109,14 @@ public class XmlLexer : IXmlLexer
         if (IsIdentifierStart(r))
         {
             _state = LexerState.IdentifierSeq;
+            yield break;
+        }
+
+        if (IsNumberStart(r))
+        {
+            _numberLength = 0;
+            _numberHasDot = false;
+            _state = LexerState.NumberSeq;
             yield break;
         }
 
@@ -225,6 +238,62 @@ public class XmlLexer : IXmlLexer
         return new XmlToken { Kind = XmlTokenKind.Text, Span = text.AsMemory() };
     }
 
+    private IEnumerable<XmlToken> HandleNumberSeq()
+    {
+        if (!TryPeek(out Rune rn))
+        {
+            if (_reader.EOS)
+            {
+                yield return YieldNumber();
+                _state = LexerState.Eof;
+                yield break;
+            }
+            _shouldStop = true;
+            yield break;
+        }
+
+        char cn = (char)rn.Value;
+
+        if (cn >= '0' && cn <= '9')
+        {
+            Consume();
+            if (_numberLength < 24)
+                _numberBuffer[_numberLength++] = rn;
+            yield break;
+        }
+
+        if (cn == '_')
+        {
+            Consume();
+            yield break;
+        }
+
+        if (cn == '.' && !_numberHasDot)
+        {
+            Consume();
+            _numberHasDot = true;
+            if (_numberLength < 24)
+                _numberBuffer[_numberLength++] = rn;
+            yield break;
+        }
+
+        yield return YieldNumber();
+        _state = LexerState.Default;
+    }
+
+    private XmlToken YieldNumber()
+    {
+        Span<char> chars = stackalloc char[_numberLength];
+        for (int i = 0; i < _numberLength; i++)
+            chars[i] = (char)_numberBuffer[i].Value;
+
+        if (!double.TryParse(chars, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out double value))
+            value = 0;
+
+        var text = new string(chars);
+        return new XmlToken { Kind = XmlTokenKind.NumberLiteral, Span = text.AsMemory(), NumberValue = value };
+    }
+
     private XmlToken YieldIdentifier()
     {
         var ident = _textBuilder.ToString();
@@ -316,6 +385,16 @@ public class XmlLexer : IXmlLexer
     private static bool IsIdentifierStart(Rune r) => r.IsAscii && (char.IsLetter((char)r.Value) || (char)r.Value == '_');
     
     private static bool IsIdentifierPart(Rune r) => r.IsAscii && (char.IsLetterOrDigit((char)r.Value) || (char)r.Value == '_');
+
+    private bool IsNumberStart(Rune r)
+    {
+        if (!r.IsAscii) return false;
+        char c = (char)r.Value;
+        if (c >= '0' && c <= '9') return true;
+        if (c == '.' && TryPeekNext(out Rune next) && next.IsAscii && (char)next.Value >= '0' && (char)next.Value <= '9')
+            return true;
+        return false;
+    }
 
     private static XmlTokenKind GetKind(char c) => c switch
     {

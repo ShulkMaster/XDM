@@ -206,4 +206,110 @@ public class XmlLexerTests
         var reconstructed = string.Join("", tokens.Select(t => t.Span.ToString()));
         Assert.Equal("<Person age={30} name={exp}>{escaped}</Person>", reconstructed);
     }
+
+    [Theory]
+    [InlineData("{13}", 13.0)]
+    [InlineData("{0.4}", 0.4)]
+    [InlineData("{.15}", 0.15)]
+    [InlineData("{100}", 100.0)]
+    [InlineData("{3.14159}", 3.14159)]
+    [InlineData("{1_000}", 1000.0)]
+    [InlineData("{1_000.50}", 1000.50)]
+    [InlineData("{.5}", 0.5)]
+    public async Task HandlesNumberBindings(string input, double expectedValue)
+    {
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(input));
+        using var reader = new TextStreamReader(stream);
+        var lexer = new XmlLexer(reader);
+
+        var tokens = await CollectTokens(lexer);
+
+        // { number }
+        Assert.True(tokens.Count >= 3);
+        Assert.Equal(XmlTokenKind.OpenBrace, tokens[0].Kind);
+        Assert.Equal(XmlTokenKind.NumberLiteral, tokens[1].Kind);
+        Assert.Equal(expectedValue, tokens[1].NumberValue, 10);
+        Assert.Equal(XmlTokenKind.CloseBrace, tokens[2].Kind);
+    }
+
+    [Fact]
+    public async Task HandlesNumberInAttributeBinding()
+    {
+        var xml = "<div width={13} />";
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(xml));
+        using var reader = new TextStreamReader(stream);
+        var lexer = new XmlLexer(reader);
+
+        var tokens = await CollectTokens(lexer);
+
+        Assert.Contains(tokens, t => t.Kind == XmlTokenKind.NumberLiteral && t.NumberValue == 13.0);
+        Assert.Contains(tokens, t => t.Kind == XmlTokenKind.Identifier && t.Span.ToString() == "width");
+        Assert.Contains(tokens, t => t.Kind == XmlTokenKind.Equals);
+    }
+
+    [Fact]
+    public async Task HandlesDecimalNumberInAttributeBinding()
+    {
+        var xml = "<div borderWidth={0.4} />";
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(xml));
+        using var reader = new TextStreamReader(stream);
+        var lexer = new XmlLexer(reader);
+
+        var tokens = await CollectTokens(lexer);
+
+        var numToken = tokens.First(t => t.Kind == XmlTokenKind.NumberLiteral);
+        Assert.Equal(0.4, numToken.NumberValue, 10);
+    }
+
+    [Fact]
+    public async Task HandlesFractionalNumberInAttributeBinding()
+    {
+        var xml = "<div width={.15} />";
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(xml));
+        using var reader = new TextStreamReader(stream);
+        var lexer = new XmlLexer(reader);
+
+        var tokens = await CollectTokens(lexer);
+
+        var numToken = tokens.First(t => t.Kind == XmlTokenKind.NumberLiteral);
+        Assert.Equal(0.15, numToken.NumberValue, 10);
+    }
+
+    [Fact]
+    public async Task HandlesUnderscoreSeparatorsInNumbers()
+    {
+        var xml = "{1_000_000}";
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(xml));
+        using var reader = new TextStreamReader(stream);
+        var lexer = new XmlLexer(reader);
+
+        var tokens = await CollectTokens(lexer);
+
+        var numToken = tokens.First(t => t.Kind == XmlTokenKind.NumberLiteral);
+        Assert.Equal(1000000.0, numToken.NumberValue, 10);
+        Assert.Equal("1000000", numToken.Span.ToString());
+    }
+
+    private static async Task<List<XmlToken>> CollectTokens(XmlLexer lexer)
+    {
+        var tokens = new List<XmlToken>();
+        var continueReading = true;
+        while (continueReading)
+        {
+            foreach (var token in lexer.GetTokens())
+            {
+                if (token.Kind == XmlTokenKind.Eof)
+                {
+                    continueReading = false;
+                    break;
+                }
+                tokens.Add(token);
+            }
+
+            if (continueReading && !await lexer.FetchNextChunkAsync())
+            {
+            }
+        }
+        return tokens;
+    }
 }

@@ -16,6 +16,7 @@ public enum XmlTokenKind
     CloseBracket, // ]
     Text,         // sequence of characters that are not the above
     Identifier,   // alphanumeric
+    NumberLiteral, // numeric literal
     Eof           // End of stream
 }
 
@@ -23,4 +24,5 @@ public struct XmlToken
 {
     public XmlTokenKind Kind { get; init; }
     public ReadOnlyMemory<char> Span { get; init; }
+    public double NumberValue { get; init; }
 }
