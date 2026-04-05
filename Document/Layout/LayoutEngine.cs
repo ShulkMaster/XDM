@@ -10,6 +10,7 @@ namespace Document.Layout;
 public class LayoutEngine
 {
     private readonly IMedia _media;
+    private readonly XFont _defaultFont = new XFont("Courier", 12);
     private readonly Dictionary<(string text, string fontKey), TextMetrics> _measureCache = new();
 
     public LayoutEngine(IMedia media)
@@ -39,9 +40,9 @@ public class LayoutEngine
 
     private void MeasureTextNodes(ViewNode node)
     {
-        if (node is TextViewNode textView && textView.Font != null)
+        if (node is TextViewNode textView)
         {
-            var font = textView.Font;
+            var font = textView.Font ?? _defaultFont;
             var fontKey = font.FontFamily.Name + "_" + font.Size + "_" + font.Style;
 
             for (var i = 0; i < textView.Text.Length; i++)

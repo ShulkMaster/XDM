@@ -7,9 +7,9 @@ using Shulkmaster.XDM.Parser;
 
 namespace Document;
 
-public class Generator
+public static class Generator
 {
-    public async Task<MemoryStream> GeneratePdf(Stream input, CancellationToken cancellationToken)
+    public static async Task<MemoryStream> GeneratePdf(Stream input, CancellationToken cancellationToken)
     {
         var str = new MemoryStream();
         var reader = new TextStreamReader(input);
@@ -29,6 +29,11 @@ public class Generator
         
         layout.Layout(template, page.Width, page.Height);
         
+        var renderer = new PdfRenderer();
+        renderer.RenderPage(page, template);
+        
+        await pdf.SaveAsync(str);
+        str.Position = 0;
         
         return str;
     }

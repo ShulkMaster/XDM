@@ -1,10 +1,7 @@
 using System.Net;
 using System.Net.WebSockets;
-using PdfSharp;
-using PdfSharp.Drawing;
-using PdfSharp.Drawing.Layout;
+using Document;
 using PdfSharp.Fonts;
-using PdfSharp.Pdf;
 
 namespace DevelopServer;
 
@@ -33,7 +30,8 @@ public class Server : IDisposable
 
         _watcher.Changed += OnFileChanged;
         _watcher.Created += OnFileChanged;
-        _watcher.Renamed += (_, e) => OnFileChanged(null, new FileSystemEventArgs(WatcherChangeTypes.Changed, Path.GetDirectoryName(e.FullPath)!, e.Name!));
+        _watcher.Renamed += (_, e) => OnFileChanged(null,
+            new FileSystemEventArgs(WatcherChangeTypes.Changed, Path.GetDirectoryName(e.FullPath)!, e.Name!));
     }
 
     public async Task RunAsync(CancellationToken ct = default)
@@ -109,7 +107,10 @@ public class Server : IDisposable
                     break;
             }
         }
-        catch (Exception) { /* client disconnected */ }
+        catch (Exception)
+        {
+            /* client disconnected */
+        }
         finally
         {
             lock (_clientsLock)
@@ -130,9 +131,9 @@ public class Server : IDisposable
             try
             {
                 Console.WriteLine($"File changed: {e.FullPath}");
-                var content = await File.ReadAllTextAsync(e.FullPath);
+                var content = File.OpenRead(e.FullPath);
                 var relativePath = Path.GetRelativePath(_templatesPath, e.FullPath);
-                var pdfBytes = GeneratePdf(content);
+                var pdfBytes = await GeneratePdf(content);
                 var segment = new ArraySegment<byte>(pdfBytes);
 
                 List<WebSocket> snapshot;
@@ -147,7 +148,10 @@ public class Server : IDisposable
                         {
                             await ws.SendAsync(segment, WebSocketMessageType.Binary, true, CancellationToken.None);
                         }
-                        catch { /* ignore dead sockets */ }
+                        catch
+                        {
+                            /* ignore dead sockets */
+                        }
                     }
                 }
 
@@ -160,24 +164,13 @@ public class Server : IDisposable
         });
     }
 
-    private static byte[] GeneratePdf(string xmlContent)
+    private static async Task<byte[]> GeneratePdf(FileStream xmlContent)
     {
         if (GlobalFontSettings.FontResolver == null)
             GlobalFontSettings.FontResolver = new SystemFontResolver();
 
-        var document = new PdfDocument();
-        var page = document.AddPage();
-        page.Size = PageSize.A4;
+        var stream = await Generator.GeneratePdf(xmlContent, default);
 
-        var gfx = XGraphics.FromPdfPage(page);
-        var font = new XFont("Courier", 12);
-        var margin = XUnitPt.FromPoint(30);
-        var rect = new XRect(margin, margin, page.Width.Point - margin * 2, page.Height.Point - margin * 2);
-        var tf = new XTextFormatter(gfx);
-        tf.DrawString(xmlContent, font, XBrushes.Black, rect);
-
-        using var stream = new MemoryStream();
-        document.Save(stream, false);
         return stream.ToArray();
     }
 

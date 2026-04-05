@@ -1,4 +1,3 @@
-using System.Drawing;
 using PdfSharp.Drawing;
 
 namespace Document.ViewNodes;
@@ -19,6 +18,7 @@ public struct Bounds
 public class ViewNode
 {
     public ViewStyles Styles { get; set; } = new();
+    public Bounds Bounds { get; set; } = new();
     public List<ViewNode> Children { get; init; } = [];
 }
 
@@ -30,13 +30,17 @@ public struct TextNode
 
     public string Text { get; set; } = string.Empty;
 
+    // Memoized measurements per word
     public XUnit Width { get; set; } = XUnit.FromPoint(0);
     public XUnit Height { get; set; } = XUnit.FromPoint(0);
+    public XUnit Baseline { get; set; } = XUnit.FromPoint(0);
+    public bool Measured { get; set; } = false;
 }
 
 public class TextViewNode : ViewNode
 {
     public TextNode[] Text { get; init; } = [];
+    public XFont? Font { get; set; }
 }
 
 public class ImageViewNode : ViewNode
