@@ -35,7 +35,7 @@ public class LayoutEngine
         FinalizeLayout(root, XUnit.FromPoint(0), XUnit.FromPoint(0), containerWidth, containerHeight);
     }
 
-    // ── Phase 1: Measure text word-by-word with memoization ──────────────
+    // ── Phase 1: Measure text word-by-word ──────────────
 
     private void MeasureTextNodes(ViewNode node)
     {
@@ -52,6 +52,11 @@ public class LayoutEngine
                 tn.Height = metrics.Height;
                 tn.Baseline = metrics.Baseline;
                 tn.Measured = true;
+
+                if (metrics.Width < 0 && metrics.Height < 0)
+                {
+                    throw new Exception($"Invalid font metrics {tn.Text}");
+                }
             }
         }
 
