@@ -79,7 +79,12 @@ public class LayoutEngine
         var padTop = XUnit.FromPoint(node.Styles.Padding.Top);
         var padBottom = XUnit.FromPoint(node.Styles.Padding.Bottom);
 
-        var innerWidth = availableWidth - padLeft - padRight;
+        // If the container has a Fixed width, that becomes the new available width
+        var effectiveWidth = node.Styles.WidthMode == SizeMode.Fixed
+            ? node.Styles.Width
+            : availableWidth;
+
+        var innerWidth = effectiveWidth - padLeft - padRight;
         if (innerWidth.Point < 0) innerWidth = XUnit.FromPoint(0);
 
         if (node is TextViewNode textView && textView.Font != null)
@@ -166,6 +171,10 @@ public class LayoutEngine
             if (descent.Point > lineMaxDescent.Point)
                 lineMaxDescent = descent;
 
+            // Store word position (relative to the TextViewNode)
+            word.X = isFirstWordOnLine ? cursorX : cursorX + spaceWidth;
+            word.Y = totalHeight;
+
             cursorX += advance;
             isFirstWordOnLine = false;
         }
@@ -175,22 +184,16 @@ public class LayoutEngine
             maxCursorX = cursorX;
 
         var lastLineHeight = lineMaxAscent + lineMaxDescent;
-        if (lastLineHeight.Point == 0 && totalHeight.Point > 0)
-        {
-             // avoid extra height for trailing \n if we already handled it,
-             // but if we are on a new line we might need it.
-             // Usually if cursorX is 0 we are on a new line.
-        }
         totalHeight += lastLineHeight;
 
-        // Set the text view to Fixed size mode
+        // Text should be as wide as possible (use maxWidth), only wrapping when exceeded
         var bounds = textView.Bounds;
-        bounds.W = maxCursorX; // Use measured width instead of maxWidth
+        bounds.W = maxWidth;
         bounds.H = totalHeight;
         textView.Bounds = bounds;
 
         var styles = textView.Styles;
-        styles.Width = maxCursorX;
+        styles.Width = maxWidth;
         styles.Height = totalHeight;
         styles.WidthMode = SizeMode.Fixed;
         styles.HeightMode = SizeMode.Fixed;

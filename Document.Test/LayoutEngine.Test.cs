@@ -55,18 +55,37 @@ public class LayoutEngineTest
     [Fact]
     public void SingleLineTest()
     {
+        // Multiple words on a single line, verify X positions advance correctly
+        // MockMedia: each char = 10pt wide, space = font.Size * 0.3 = 3pt
         var text = new TextViewNode
         {
             Font = _font,
-            Text = [new TextNode { Text = "Hello" }]
+            Text = [
+                new TextNode { Text = "Hello" },   // 5*10 = 50
+                new TextNode { Text = "World" },   // 5*10 = 50
+                new TextNode { Text = "Foo" },     // 3*10 = 30
+                new TextNode { Text = "Bar" }      // 3*10 = 30
+            ]
         };
         var root = new ViewNode { Children = { text } };
 
-        _engine.Layout(root, XUnit.FromPoint(100), XUnit.FromPoint(100));
+        // Container wide enough to fit all: 50 + 3 + 50 + 3 + 30 + 3 + 30 = 169
+        _engine.Layout(root, XUnit.FromPoint(200), XUnit.FromPoint(100));
 
-        // Hello = 5 * 10 = 50 width
-        Assert.Equal(50, text.Bounds.W.Point);
+        // Text should use full available width (maxWidth)
+        Assert.Equal(200, text.Bounds.W.Point);
+        // Single line height
         Assert.Equal(10, text.Bounds.H.Point);
+
+        // Verify word X positions advance along the line
+        // "Hello" starts at X=0
+        Assert.Equal(0, text.Text[0].X.Point);
+        // "World" starts at X = 50 (Hello) + 3 (space) = 53
+        Assert.Equal(53, text.Text[1].X.Point);
+        // "Foo" starts at X = 50 + 3 + 50 + 3 = 106
+        Assert.Equal(106, text.Text[2].X.Point);
+        // "Bar" starts at X = 50 + 3 + 50 + 3 + 30 + 3 = 139
+        Assert.Equal(139, text.Text[3].X.Point);
     }
 
     [Fact]
@@ -78,19 +97,17 @@ public class LayoutEngineTest
             Font = _font,
             Text = [
                 new TextNode { Text = "First" },  // 50
-                new TextNode { Text = "Second" } // 60
+                new TextNode { Text = "Second" }   // 60
             ]
         };
         var root = new ViewNode { Children = { text } };
 
-        // Max width 80. First (50) + Space (10 * 0.3 = 3) + Second (60) = 113 > 80.
+        // Max width 80. First (50) + Space (3) + Second (60) = 113 > 80.
         // Should wrap to two lines.
         _engine.Layout(root, XUnit.FromPoint(80), XUnit.FromPoint(200));
 
-        // Max width encountered was "Second" (60) because it wrapped.
-        // But the requirement says "wraps around because of the container max width was reached"
-        // In my current implementation, the width of the TextView becomes the width of the widest line.
-        Assert.Equal(60, text.Bounds.W.Point);
+        // Text should be as wide as possible (maxWidth = 80)
+        Assert.Equal(80, text.Bounds.W.Point);
         Assert.Equal(20, text.Bounds.H.Point); // 2 lines * 10
     }
 
@@ -110,10 +127,9 @@ public class LayoutEngineTest
 
         _engine.Layout(root, XUnit.FromPoint(200), XUnit.FromPoint(200));
 
-        // We'll see how LayoutEngine handles this. 
-        // Current implementation: only wraps if cursorX + advance > maxWidth.
-        // It doesn't seem to check for "\n" character.
-        // If it doesn't wrap, H will be 10. If it wraps, H will be 20.
+        // Explicit \n forces two lines
         Assert.Equal(20, text.Bounds.H.Point);
+        // Text width is maxWidth
+        Assert.Equal(200, text.Bounds.W.Point);
     }
 }

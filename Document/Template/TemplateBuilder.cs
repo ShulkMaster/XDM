@@ -8,7 +8,6 @@ public class TemplateBuilder
     public ViewNode FromXmlDoc(XmlDocument doc)
     {
         var root = new ViewNode();
-        if (doc.Root == null) return root;
 
         // Stack holds (XmlTag source, ViewNode target) pairs
         var stack = new Stack<(XmlTag tag, ViewNode node)>();

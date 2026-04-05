@@ -35,6 +35,10 @@ public struct TextNode
     public XUnit Height { get; set; } = XUnit.FromPoint(0);
     public XUnit Baseline { get; set; } = XUnit.FromPoint(0);
     public bool Measured { get; set; } = false;
+
+    // Layout-computed position (relative to the TextViewNode)
+    public XUnit X { get; set; } = XUnit.FromPoint(0);
+    public XUnit Y { get; set; } = XUnit.FromPoint(0);
 }
 
 public class TextViewNode : ViewNode

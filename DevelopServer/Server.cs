@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.WebSockets;
 using Document;
 using PdfSharp.Fonts;
+using PdfSharp.Pdf;
 
 namespace DevelopServer;
 
@@ -97,6 +98,31 @@ public class Server : IDisposable
 
         Console.WriteLine("WebSocket client connected");
 
+        // Send the first template found or a blank PDF
+        try
+        {
+            var firstTemplate = Directory.EnumerateFiles(_templatesPath, "*.xml").FirstOrDefault();
+            byte[] pdfBytes;
+            if (firstTemplate != null)
+            {
+                await using var content = File.OpenRead(firstTemplate);
+                pdfBytes = await GeneratePdf(content);
+            }
+            else
+            {
+                pdfBytes = await GenerateBlankPdf();
+            }
+
+            if (ws.State == WebSocketState.Open)
+            {
+                await ws.SendAsync(new ArraySegment<byte>(pdfBytes), WebSocketMessageType.Binary, true, ct);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error sending initial PDF: {ex.Message}");
+        }
+
         try
         {
             var buffer = new byte[1024];
@@ -171,6 +197,15 @@ public class Server : IDisposable
 
         var stream = await Generator.GeneratePdf(xmlContent, default);
 
+        return stream.ToArray();
+    }
+
+    private static async Task<byte[]> GenerateBlankPdf()
+    {
+        using var stream = new MemoryStream();
+        var pdf = new PdfDocument();
+        pdf.AddPage();
+        await pdf.SaveAsync(stream);
         return stream.ToArray();
     }
 
