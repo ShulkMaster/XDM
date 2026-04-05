@@ -11,7 +11,6 @@ public class LayoutEngine
 {
     private readonly IMedia _media;
     private readonly XFont _defaultFont = new XFont("Courier", 12);
-    private readonly Dictionary<(string text, string fontKey), TextMetrics> _measureCache = new();
 
     public LayoutEngine(IMedia media)
     {
@@ -43,19 +42,11 @@ public class LayoutEngine
         if (node is TextViewNode textView)
         {
             var font = textView.Font ?? _defaultFont;
-            var fontKey = font.FontFamily.Name + "_" + font.Size + "_" + font.Style;
 
             for (var i = 0; i < textView.Text.Length; i++)
             {
                 ref var tn = ref textView.Text[i];
-                if (tn.Measured) continue;
-
-                var cacheKey = (tn.Text, fontKey);
-                if (!_measureCache.TryGetValue(cacheKey, out var metrics))
-                {
-                    metrics = _media.MeasureString(tn.Text, font);
-                    _measureCache[cacheKey] = metrics;
-                }
+                var metrics = _media.MeasureString(tn.Text, font);
 
                 tn.Width = metrics.Width;
                 tn.Height = metrics.Height;
@@ -122,8 +113,8 @@ public class LayoutEngine
         var cursorX = XUnit.FromPoint(0);
         var maxCursorX = XUnit.FromPoint(0);
         // Per-line tracking: highest ascent (baseline from top) and total height
-        var lineMaxAscent = XUnit.FromPoint(0);   // max baseline in current line
-        var lineMaxDescent = XUnit.FromPoint(0);   // max (height - baseline) in current line
+        var lineMaxAscent = XUnit.FromPoint(0); // max baseline in current line
+        var lineMaxDescent = XUnit.FromPoint(0); // max (height - baseline) in current line
         var totalHeight = XUnit.FromPoint(0);
         var isFirstWordOnLine = true;
 
@@ -145,7 +136,7 @@ public class LayoutEngine
 
                 // Finish current line: advance totalHeight by line height
                 var lineHeight = lineMaxAscent + lineMaxDescent;
-                
+
                 // If the line was empty (e.g. leading \n), we still want the height of a space/default
                 if (lineHeight.Point == 0)
                     lineHeight = XUnit.FromPoint(font.Size);
@@ -158,7 +149,7 @@ public class LayoutEngine
                 lineMaxDescent = XUnit.FromPoint(0);
                 isFirstWordOnLine = true;
                 advance = wordWidth;
-                
+
                 if (isExplicitLineBreak) continue;
             }
 
@@ -228,9 +219,10 @@ public class LayoutEngine
                     allFixedW = false;
                     break;
                 }
+
                 var childTotalW = child.Styles.Width
-                    + XUnit.FromPoint(child.Styles.Margin.Start)
-                    + XUnit.FromPoint(child.Styles.Margin.End);
+                                  + XUnit.FromPoint(child.Styles.Margin.Start)
+                                  + XUnit.FromPoint(child.Styles.Margin.End);
                 if (childTotalW.Point > maxW.Point)
                     maxW = childTotalW;
             }
@@ -255,9 +247,10 @@ public class LayoutEngine
                     allFixedH = false;
                     break;
                 }
+
                 sumH += child.Styles.Height
-                    + XUnit.FromPoint(child.Styles.Margin.Top)
-                    + XUnit.FromPoint(child.Styles.Margin.Bottom);
+                        + XUnit.FromPoint(child.Styles.Margin.Top)
+                        + XUnit.FromPoint(child.Styles.Margin.Bottom);
             }
 
             if (allFixedH)

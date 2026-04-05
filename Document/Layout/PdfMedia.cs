@@ -15,6 +15,19 @@ public class PdfMedia : IMedia
 
     public TextMetrics MeasureString(string text, XFont font)
     {
+        // Guard against empty or whitespace-only strings that XGraphics returns 0 for
+        if (string.IsNullOrEmpty(text))
+        {
+            // Return zero width but valid height, so line spacing is preserved
+            var fallback = _g.MeasureString("X", font);
+            return new TextMetrics
+            {
+                Width = XUnit.FromPoint(0),
+                Height = XUnit.FromPoint(fallback.Height),
+                Baseline = XUnit.FromPoint(fallback.Height / 2),
+            };
+        }
+
         var metrics = _g.MeasureString(text, font);
         return new TextMetrics
         {
