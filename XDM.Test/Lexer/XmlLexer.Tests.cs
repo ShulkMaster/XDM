@@ -308,7 +308,7 @@ public class XmlLexerTests
     }
 
     [Fact]
-    public async Task StripsLeadingWhitespaceInTextContent()
+    public async Task PreservesLeadingWhitespaceInTextContent()
     {
         var xml = "<a>   text   </a>";
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes(xml));
@@ -317,14 +317,12 @@ public class XmlLexerTests
 
         var tokens = await CollectTokens(lexer);
 
-        // Leading whitespace stripped, trailing preserved
+        // Leading whitespace preserved
         var textTokens = tokens.Where(t => t.Kind == XmlTokenKind.Text).ToList();
-        // "text" becomes Identifier; trailing "   " is the only Text
+        Assert.Contains(textTokens, t => t.Span.ToString() == "   ");
+        
         var identTokens = tokens.Where(t => t.Kind == XmlTokenKind.Identifier).ToList();
         Assert.Contains(identTokens, t => t.Span.ToString() == "text");
-        // No text token with only leading whitespace
-        Assert.DoesNotContain(tokens, t => t.Kind == XmlTokenKind.Text && t.Span.ToString() == "   " && 
-            tokens.IndexOf(t) < tokens.FindIndex(x => x.Kind == XmlTokenKind.Identifier && x.Span.ToString() == "text"));
     }
 
     [Fact]

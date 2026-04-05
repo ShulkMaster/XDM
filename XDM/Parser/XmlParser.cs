@@ -95,7 +95,15 @@ public class XmlParser
             if (_stack.Count > 0)
             {
                 var text = token.Span.ToString();
-                _stack.Peek().Children.Add(new XmlText { Value = text });
+                var parent = _stack.Peek();
+                if (parent.Children.Count > 0 && parent.Children[^1] is XmlText lastText)
+                {
+                    lastText.Value += text;
+                }
+                else
+                {
+                    parent.Children.Add(new XmlText { Value = text });
+                }
             }
         }
         else if (token.Kind == XmlTokenKind.Eof)
