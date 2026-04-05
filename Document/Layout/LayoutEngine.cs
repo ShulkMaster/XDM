@@ -83,8 +83,9 @@ public class LayoutEngine
         var innerWidth = effectiveWidth - padLeft - padRight;
         if (innerWidth.Point < 0) innerWidth = XUnit.FromPoint(0);
 
-        if (node is TextViewNode textView && textView.Font != null)
+        if (node is TextViewNode textView)
         {
+            textView.Font ??= _defaultFont;
             LayoutTextContent(textView, innerWidth);
             return;
         }

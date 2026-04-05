@@ -26,9 +26,14 @@ public class TemplateBuilder
                 {
                     case XmlText text:
                     {
+                        var words = text.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                        var textNodes = new TextNode[words.Length];
+                        for (var j = 0; j < words.Length; j++)
+                            textNodes[j] = new TextNode { Text = words[j] };
+
                         var textView = new TextViewNode
                         {
-                            Text = [new TextNode { Text = text.Value }]
+                            Text = textNodes
                         };
                         parentNode.Children.Add(textView);
                         break;
