@@ -115,6 +115,7 @@ public class LayoutEngine
         }
 
         var cursorX = XUnit.FromPoint(0);
+        var maxCursorX = XUnit.FromPoint(0);
         // Per-line tracking: highest ascent (baseline from top) and total height
         var lineMaxAscent = XUnit.FromPoint(0);   // max baseline in current line
         var lineMaxDescent = XUnit.FromPoint(0);   // max (height - baseline) in current line
@@ -129,11 +130,21 @@ public class LayoutEngine
             var wordWidth = word.Width;
             var advance = isFirstWordOnLine ? wordWidth : spaceWidth + wordWidth;
 
-            // Check if word wraps to next line
-            if (!isFirstWordOnLine && cursorX.Point + advance.Point > maxWidth.Point)
+            // Check if word is an explicit line break OR wraps to next line
+            var isExplicitLineBreak = word.Text == "\n";
+            if (isExplicitLineBreak || (!isFirstWordOnLine && cursorX.Point + advance.Point > maxWidth.Point))
             {
+                // Update max width before line break
+                if (cursorX.Point > maxCursorX.Point)
+                    maxCursorX = cursorX;
+
                 // Finish current line: advance totalHeight by line height
                 var lineHeight = lineMaxAscent + lineMaxDescent;
+                
+                // If the line was empty (e.g. leading \n), we still want the height of a space/default
+                if (lineHeight.Point == 0)
+                    lineHeight = XUnit.FromPoint(font.Size);
+
                 totalHeight += lineHeight;
 
                 // Start new line
@@ -142,6 +153,8 @@ public class LayoutEngine
                 lineMaxDescent = XUnit.FromPoint(0);
                 isFirstWordOnLine = true;
                 advance = wordWidth;
+                
+                if (isExplicitLineBreak) continue;
             }
 
             // Update line metrics for baseline alignment
@@ -158,17 +171,26 @@ public class LayoutEngine
         }
 
         // Account for the last line
+        if (cursorX.Point > maxCursorX.Point)
+            maxCursorX = cursorX;
+
         var lastLineHeight = lineMaxAscent + lineMaxDescent;
+        if (lastLineHeight.Point == 0 && totalHeight.Point > 0)
+        {
+             // avoid extra height for trailing \n if we already handled it,
+             // but if we are on a new line we might need it.
+             // Usually if cursorX is 0 we are on a new line.
+        }
         totalHeight += lastLineHeight;
 
         // Set the text view to Fixed size mode
         var bounds = textView.Bounds;
-        bounds.W = maxWidth;
+        bounds.W = maxCursorX; // Use measured width instead of maxWidth
         bounds.H = totalHeight;
         textView.Bounds = bounds;
 
         var styles = textView.Styles;
-        styles.Width = maxWidth;
+        styles.Width = maxCursorX;
         styles.Height = totalHeight;
         styles.WidthMode = SizeMode.Fixed;
         styles.HeightMode = SizeMode.Fixed;

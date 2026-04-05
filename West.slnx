@@ -1,5 +1,6 @@
 <Solution>
   <Project Path="DevelopServer/DevelopServer.csproj" />
+  <Project Path="Document.Test/Document.Test.csproj" />
   <Project Path="Document/Document.csproj" />
   <Project Path="XDM.Test/XDM.Test.csproj" />
   <Project Path="XDM\XDM.csproj" />
