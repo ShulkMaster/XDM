@@ -17,6 +17,9 @@ public class XmlLexer : IXmlLexer
     private Rune _peek2;
     private bool _hasPeek2;
     private bool _shouldStop;
+    private bool _insideTag;
+    private bool _skipLeadingWhitespace;
+    private bool _trimPostNewline;
 
     public XmlLexer(ITextStreamReader reader)
     {
@@ -62,6 +65,17 @@ public class XmlLexer : IXmlLexer
         }
 
         char c = (char)r.Value;
+
+        // Skip whitespace inside tags, between tags, or at content start
+        if (char.IsWhiteSpace(c) && (_insideTag || _skipLeadingWhitespace))
+        {
+            Consume();
+            yield break;
+        }
+
+        // First non-whitespace char clears the leading-whitespace flag
+        if (_skipLeadingWhitespace && !char.IsWhiteSpace(c))
+            _skipLeadingWhitespace = false;
         if (c == '{')
         {
             if (TryPeekNext(out Rune n))
@@ -141,6 +155,7 @@ public class XmlLexer : IXmlLexer
                 {
                     Consume(); Consume();
                     string s2 = CreateStringFromStack('<', '/');
+                    _insideTag = true;
                     _state = LexerState.Default;
                     yield return new XmlToken { Kind = XmlTokenKind.CloseTagStart, Span = s2.AsMemory() };
                     yield break;
@@ -156,8 +171,18 @@ public class XmlLexer : IXmlLexer
 
         Consume();
         _state = LexerState.Default;
+        var kind = GetKind(cid);
+
+        if (kind == XmlTokenKind.OpenTag)
+            _insideTag = true;
+        else if (kind == XmlTokenKind.CloseTag)
+        {
+            _insideTag = false;
+            _skipLeadingWhitespace = true;
+        }
+
         string s1 = CreateStringFromStack(cid);
-        yield return new XmlToken { Kind = GetKind(cid), Span = s1.AsMemory() };
+        yield return new XmlToken { Kind = kind, Span = s1.AsMemory() };
     }
 
     private IEnumerable<XmlToken> HandleTextSeq()
@@ -197,7 +222,21 @@ public class XmlLexer : IXmlLexer
         }
 
         Consume();
-        _textBuilder.Append(rt.ToString());
+
+        if (ct == '\n')
+        {
+            _textBuilder.Append('\n');
+            _trimPostNewline = true;
+        }
+        else if (_trimPostNewline && char.IsWhiteSpace(ct))
+        {
+            // Skip whitespace after a newline in text content
+        }
+        else
+        {
+            _trimPostNewline = false;
+            _textBuilder.Append(rt.ToString());
+        }
     }
 
     private IEnumerable<XmlToken> HandleIdentifierSeq()
@@ -254,7 +293,7 @@ public class XmlLexer : IXmlLexer
 
         char cn = (char)rn.Value;
 
-        if (cn >= '0' && cn <= '9')
+        if (char.IsAsciiDigit(cn))
         {
             Consume();
             if (_numberLength < 24)
@@ -390,8 +429,8 @@ public class XmlLexer : IXmlLexer
     {
         if (!r.IsAscii) return false;
         char c = (char)r.Value;
-        if (c >= '0' && c <= '9') return true;
-        if (c == '.' && TryPeekNext(out Rune next) && next.IsAscii && (char)next.Value >= '0' && (char)next.Value <= '9')
+        if (char.IsAsciiDigit(c)) return true;
+        if (c == '.' && TryPeekNext(out Rune next) && next.IsAscii && char.IsAsciiDigit((char)next.Value))
             return true;
         return false;
     }

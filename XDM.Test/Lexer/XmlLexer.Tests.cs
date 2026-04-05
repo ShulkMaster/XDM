@@ -41,7 +41,7 @@ public class XmlLexerTests
         Assert.True(tokens.Count >= 7);
         
         var reconstructed = string.Join("", tokens.Select(t => t.Item2));
-        Assert.Equal(xml, reconstructed);
+        Assert.Equal("<a>text</a>", reconstructed);
 
         Assert.Contains(tokens, t => t is { Item1: XmlTokenKind.OpenTag, Item2: "<" });
         Assert.Contains(tokens, t => t is { Item1: XmlTokenKind.CloseTagStart, Item2: "</" });
@@ -151,15 +151,13 @@ public class XmlLexerTests
         var lexer = new XmlLexer(reader);
 
         var tokens = lexer.GetTokens().ToList();
-        // <, a, " ", /, >
-        Assert.Equal(5, tokens.Count);
+        // Whitespace inside tag is skipped: <, a, /, >
+        Assert.Equal(4, tokens.Count);
         Assert.Equal(XmlTokenKind.OpenTag, tokens[0].Kind);
         Assert.Equal(XmlTokenKind.Identifier, tokens[1].Kind);
         Assert.Equal("a", tokens[1].Span.ToString());
-        Assert.Equal(XmlTokenKind.Text, tokens[2].Kind);
-        Assert.Equal(" ", tokens[2].Span.ToString());
-        Assert.Equal(XmlTokenKind.Slash, tokens[3].Kind);
-        Assert.Equal(XmlTokenKind.CloseTag, tokens[4].Kind);
+        Assert.Equal(XmlTokenKind.Slash, tokens[2].Kind);
+        Assert.Equal(XmlTokenKind.CloseTag, tokens[3].Kind);
     }
 
     [Fact]
@@ -204,7 +202,8 @@ public class XmlLexerTests
         Assert.Contains(tokens, t => t.Kind == XmlTokenKind.Identifier && t.Span.ToString() == "exp");
 
         var reconstructed = string.Join("", tokens.Select(t => t.Span.ToString()));
-        Assert.Equal("<Person age={30} name={exp}>{escaped}</Person>", reconstructed);
+        // Whitespace inside tags is stripped
+        Assert.Equal("<Personage={30}name={exp}>{escaped}</Person>", reconstructed);
     }
 
     [Theory]
@@ -245,6 +244,8 @@ public class XmlLexerTests
         Assert.Contains(tokens, t => t.Kind == XmlTokenKind.NumberLiteral && t.NumberValue == 13.0);
         Assert.Contains(tokens, t => t.Kind == XmlTokenKind.Identifier && t.Span.ToString() == "width");
         Assert.Contains(tokens, t => t.Kind == XmlTokenKind.Equals);
+        // Whitespace inside tag should be stripped — no Text tokens with spaces
+        Assert.DoesNotContain(tokens, t => t.Kind == XmlTokenKind.Text && t.Span.ToString().Trim() == "");
     }
 
     [Fact]
@@ -288,6 +289,76 @@ public class XmlLexerTests
         var numToken = tokens.First(t => t.Kind == XmlTokenKind.NumberLiteral);
         Assert.Equal(1000000.0, numToken.NumberValue, 10);
         Assert.Equal("1000000", numToken.Span.ToString());
+    }
+
+    [Fact]
+    public async Task SkipsWhitespaceInsideTagAttributes()
+    {
+        var xml = "<a  attrib=\"v\"       attrib2=\"w\">";
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(xml));
+        using var reader = new TextStreamReader(stream);
+        var lexer = new XmlLexer(reader);
+
+        var tokens = await CollectTokens(lexer);
+
+        // No Text tokens with only whitespace should exist
+        Assert.DoesNotContain(tokens, t => t.Kind == XmlTokenKind.Text && t.Span.ToString().Trim() == "");
+        Assert.Contains(tokens, t => t.Kind == XmlTokenKind.Identifier && t.Span.ToString() == "attrib");
+        Assert.Contains(tokens, t => t.Kind == XmlTokenKind.Identifier && t.Span.ToString() == "attrib2");
+    }
+
+    [Fact]
+    public async Task StripsLeadingWhitespaceInTextContent()
+    {
+        var xml = "<a>   text   </a>";
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(xml));
+        using var reader = new TextStreamReader(stream);
+        var lexer = new XmlLexer(reader);
+
+        var tokens = await CollectTokens(lexer);
+
+        // Leading whitespace stripped, trailing preserved
+        var textTokens = tokens.Where(t => t.Kind == XmlTokenKind.Text).ToList();
+        // "text" becomes Identifier; trailing "   " is the only Text
+        var identTokens = tokens.Where(t => t.Kind == XmlTokenKind.Identifier).ToList();
+        Assert.Contains(identTokens, t => t.Span.ToString() == "text");
+        // No text token with only leading whitespace
+        Assert.DoesNotContain(tokens, t => t.Kind == XmlTokenKind.Text && t.Span.ToString() == "   " && 
+            tokens.IndexOf(t) < tokens.FindIndex(x => x.Kind == XmlTokenKind.Identifier && x.Span.ToString() == "text"));
+    }
+
+    [Fact]
+    public async Task StripsWhitespaceAfterNewlineInText()
+    {
+        var xml = "<a>text\n   word</a>";
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(xml));
+        using var reader = new TextStreamReader(stream);
+        var lexer = new XmlLexer(reader);
+
+        var tokens = await CollectTokens(lexer);
+
+        // After \n, leading whitespace should be stripped
+        // So we should see text containing \n but no spaces after it
+        var allText = string.Join("", tokens.Select(t => t.Span.ToString()));
+        Assert.DoesNotContain("\n   ", allText);
+        Assert.Contains("\n", allText);
+    }
+
+    [Fact]
+    public async Task SkipsWhitespaceBetweenTags()
+    {
+        var xml = "<a/>\n<b/>";
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(xml));
+        using var reader = new TextStreamReader(stream);
+        var lexer = new XmlLexer(reader);
+
+        var tokens = await CollectTokens(lexer);
+
+        // No whitespace tokens between tags
+        Assert.DoesNotContain(tokens, t => t.Kind == XmlTokenKind.Text && t.Span.ToString().Trim() == "");
+        // Both tag names should be present
+        Assert.Contains(tokens, t => t.Kind == XmlTokenKind.Identifier && t.Span.ToString() == "a");
+        Assert.Contains(tokens, t => t.Kind == XmlTokenKind.Identifier && t.Span.ToString() == "b");
     }
 
     private static async Task<List<XmlToken>> CollectTokens(XmlLexer lexer)
