@@ -3,6 +3,7 @@ using System.Net.WebSockets;
 using PdfSharp;
 using PdfSharp.Drawing;
 using PdfSharp.Drawing.Layout;
+using PdfSharp.Fonts;
 using PdfSharp.Pdf;
 
 namespace DevelopServer;
@@ -161,6 +162,9 @@ public class Server : IDisposable
 
     private static byte[] GeneratePdf(string xmlContent)
     {
+        if (GlobalFontSettings.FontResolver == null)
+            GlobalFontSettings.FontResolver = new SystemFontResolver();
+
         var document = new PdfDocument();
         var page = document.AddPage();
         page.Size = PageSize.A4;
