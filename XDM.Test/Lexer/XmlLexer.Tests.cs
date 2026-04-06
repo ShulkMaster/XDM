@@ -1,4 +1,5 @@
 using System.Text;
+using Moq;
 using Shulkmaster.XDM;
 using Shulkmaster.XDM.Lexer;
 
@@ -6,17 +7,13 @@ namespace XDM.Test.Lexer;
 
 public class XmlLexerTests
 {
-    [Fact]
-    public async Task BasicLexingWorks()
-    {
-        var xml = "<a>text</a>";
-        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(xml));
-        using var reader = new TextStreamReader(stream, 5); // Small chunks
-        var lexer = new XmlLexer(reader);
+    private delegate void TryNextCallback(out Rune rune);
 
-        var tokens = new List<(XmlTokenKind, string)>();
-        
+    private static async Task<List<XmlToken>> GetAllTokens(XmlLexer lexer)
+    {
         var continueReading = true;
+        var tokens = new List<XmlToken>();
+
         while (continueReading)
         {
             foreach (var token in lexer.GetTokens())
@@ -26,25 +23,56 @@ public class XmlLexerTests
                     continueReading = false;
                     break;
                 }
-                tokens.Add((token.Kind, token.Span.ToString()));
+
+                tokens.Add(token);
             }
-            
+
             if (!await lexer.FetchNextChunkAsync())
             {
-                // If we can't fetch more, and EOF wasn't reached, something might be wrong or we just need one more TryReadNextToken for EOF
-                // but GetTokens already handles TryReadNextToken.
+                throw new Exception("Unexpected end of stream");
             }
         }
 
-        // With the new state machine, it will reconstruct to 7 tokens
-        // < (OpenTag), a (Identifier), > (CloseTag), text (Identifier), </ (CloseTagStart), a (Identifier), > (CloseTag)
-        Assert.True(tokens.Count >= 7);
-        
-        var reconstructed = string.Join("", tokens.Select(t => t.Item2));
-        Assert.Equal("<a>text</a>", reconstructed);
+        return tokens;
+    }
 
-        Assert.Contains(tokens, t => t is { Item1: XmlTokenKind.OpenTag, Item2: "<" });
-        Assert.Contains(tokens, t => t is { Item1: XmlTokenKind.CloseTagStart, Item2: "</" });
+
+    private static Mock<ITextStreamReader> CreateMockReader(string xml)
+    {
+        var index = 0;
+        var runes = xml.Select(c => new Rune(c)).ToArray();
+        var reader = new Mock<ITextStreamReader>();
+
+        reader.Setup(r => r.TryNext(out It.Ref<Rune>.IsAny))
+            .Returns(() => index < runes.Length)
+            .Callback(new TryNextCallback((out Rune rune) => rune = index < runes.Length ? runes[index++] : default));
+
+        reader.Setup(r => r.EOS).Returns(() => index >= runes.Length);
+
+        reader.Setup(r => r.FetchNextChunkAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        return reader;
+    }
+
+    [Fact]
+    public async Task BasicLexingWorks()
+    {
+        const string xml = "<a>text</a>";
+        var reader = CreateMockReader(xml);
+        var lexer = new XmlLexer(reader.Object);
+
+        var tokens = await GetAllTokens(lexer);
+
+        Assert.True(tokens.Count >= 7);
+
+        Assert.Equal(XmlTokenKind.OpenTag, tokens[0].Kind);
+        Assert.Equal(XmlTokenKind.Identifier, tokens[1].Kind);
+        Assert.Equal(XmlTokenKind.CloseTag, tokens[2].Kind);
+        Assert.Equal(XmlTokenKind.Identifier, tokens[3].Kind);
+        Assert.Equal(XmlTokenKind.CloseTagStart, tokens[4].Kind);
+        Assert.Equal(XmlTokenKind.Identifier, tokens[5].Kind);
+        Assert.Equal(XmlTokenKind.CloseTag, tokens[6].Kind);
     }
 
     [Fact]
@@ -58,7 +86,7 @@ public class XmlLexerTests
 
         var tokens = lexer.GetTokens().ToList();
         Assert.Equal(2, tokens.Count);
-        
+
         var t1 = tokens[0];
         Assert.Equal(XmlTokenKind.Ampersand, t1.Kind);
         Assert.Equal("&", t1.Span.ToString());
@@ -70,7 +98,7 @@ public class XmlLexerTests
         // Reader exhausted but EOS not yet set
         Assert.Empty(lexer.GetTokens());
         Assert.False(await lexer.FetchNextChunkAsync());
-        
+
         var t3 = lexer.GetTokens().First();
         Assert.Equal(XmlTokenKind.Eof, t3.Kind);
     }
@@ -90,7 +118,7 @@ public class XmlLexerTests
 
         // Reach EOS
         Assert.False(await lexer.FetchNextChunkAsync());
-        
+
         // Now it should yield the identifier and Eof
         var tokens2 = lexer.GetTokens().ToList();
         Assert.Equal(2, tokens2.Count);
@@ -128,7 +156,7 @@ public class XmlLexerTests
         var tokens = lexer.GetTokens().ToList();
         // <, a, >, 🌍, </, a, >
         Assert.Equal(7, tokens.Count);
-        
+
         Assert.Equal(XmlTokenKind.OpenTag, tokens[0].Kind);
         Assert.Equal(XmlTokenKind.Identifier, tokens[1].Kind);
         Assert.Equal("a", tokens[1].Span.ToString());
@@ -181,6 +209,7 @@ public class XmlLexerTests
         {
             tokens.AddRange(lexer.GetTokens());
         }
+
         Assert.Contains(tokens, t => t.Kind == XmlTokenKind.CloseTagStart);
     }
 
@@ -320,7 +349,7 @@ public class XmlLexerTests
         // Leading whitespace preserved
         var textTokens = tokens.Where(t => t.Kind == XmlTokenKind.Text).ToList();
         Assert.Contains(textTokens, t => t.Span.ToString() == "   ");
-        
+
         var identTokens = tokens.Where(t => t.Kind == XmlTokenKind.Identifier).ToList();
         Assert.Contains(identTokens, t => t.Span.ToString() == "text");
     }
@@ -372,6 +401,7 @@ public class XmlLexerTests
                     continueReading = false;
                     break;
                 }
+
                 tokens.Add(token);
             }
 
@@ -379,6 +409,7 @@ public class XmlLexerTests
             {
             }
         }
+
         return tokens;
     }
 }
