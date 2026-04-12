@@ -15,7 +15,6 @@ public class XmlParser
     private string? _currentAttrName;
     private bool _isClosingTag;
     private bool _isSelfClosing;
-    private char _quoteChar;
 
     public XmlParser(IXmlLexer lexer)
     {
@@ -70,11 +69,12 @@ public class XmlParser
                     HandleExpression(token);
                     break;
                 case ParserState.Eof:
-                    break;
+                    _state = ParserState.Eof;
+                    return;
             }
         }
     }
-    
+
     private void HandleInit(XmlToken token)
     {
         if (token.Kind == XmlTokenKind.OpenTag)
@@ -155,6 +155,7 @@ public class XmlParser
                     _stack.Push(_currentTag!);
                 }
             }
+
             _currentTag = null;
             _state = ParserState.Init;
         }
@@ -170,7 +171,6 @@ public class XmlParser
         {
             _state = ParserState.Expression;
             _stringBuilder.Clear();
-            _quoteChar = '\0';
         }
         else if (token.Kind == XmlTokenKind.Eof)
         {
@@ -180,37 +180,27 @@ public class XmlParser
 
     private void HandleExpression(XmlToken token)
     {
-        if (_quoteChar == '\0')
+        if (token.Kind == XmlTokenKind.CloseBrace)
         {
-            if (token.Kind == XmlTokenKind.Text && token.Span.Length > 0)
-            {
-                char c = token.Span.Span[0];
-                if (c == '"' || c == '\'')
-                {
-                    _quoteChar = c;
-                }
-            }
+            _state = ParserState.TagStatement;
+            return;
         }
-        else
+
+        if (token.Kind == XmlTokenKind.Text)
         {
-            if (token.Kind == XmlTokenKind.Text && token.Span.Length == 1 && token.Span.Span[0] == _quoteChar)
+            _currentTag!.Attributes.Add(new XmlAttrib
             {
-                _currentTag!.Attributes.Add(new XmlAttrib
-                {
-                    Name = _currentAttrName!,
-                    Value = new StringExpression { Value = _stringBuilder.ToString() }
-                });
-                _currentAttrName = null;
-                _state = ParserState.TagStatement;
-            }
-            else if (token.Kind == XmlTokenKind.Eof)
-            {
-                _state = ParserState.Eof;
-            }
-            else
-            {
-                _stringBuilder.Append(token.Span.ToString());
-            }
+                Name = _currentAttrName!,
+                Value = new StringExpression { Value = token.Span.ToString() }
+            });
+
+            _state = ParserState.TagStatement;
+            _currentAttrName = null;
+        }
+
+        else if (token.Kind == XmlTokenKind.Eof)
+        {
+            _state = ParserState.Eof;
         }
     }
 }

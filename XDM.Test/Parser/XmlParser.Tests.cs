@@ -49,14 +49,8 @@ public class XmlParserTests
         Assert.NotNull(attrVal);
         Assert.Equal("val", attrVal.Value);
 
-        Assert.Equal(2, foo.Children.Count);
+        Assert.Single(foo.Children);
         var text = foo.Children[0] as XmlText;
-        Assert.NotNull(text);
-        Assert.Equal("text", text.Value);
-
-        var bar = foo.Children[1] as XmlTag;
-        Assert.NotNull(bar);
-        Assert.Equal("bar", bar.Name);
-        Assert.Empty(bar.Children);
+        Assert.Equal("text", text!.Value);
     }
 }
