@@ -76,6 +76,29 @@ public class XmlLexerTests
     }
 
     [Fact]
+    public async Task Should_Group_Text_As_Single_Token_Ignoring_Whitespace_Post_Line_Break()
+    {
+        string[] xmlLines =
+        [
+            "Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's",
+            "standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make",
+            // tab whitespace
+            "\ta type specimen book. It has survived not only five centuries, but also the leap into electronic typesetting",
+            // spaces at the start of the line
+            "  remaining essentially unchanged. It was popularised in the 1960s with the release of Letraset sheets containing",
+            "Lorem Ipsum passages, and m oreecently with desktop 2 publishing software like Aldus PageMaker including versions."
+        ];
+
+        var trimmedLines = xmlLines.Select(l => l.Trim());
+        var xmlText = string.Join(Environment.NewLine, trimmedLines);
+        var reader = CreateMockReader(xmlText);
+        var lexer = new XmlLexer(reader.Object);
+        var tokens = await GetAllTokens(lexer);
+        Assert.Single(tokens);
+        Assert.Equal(xmlText, string.Join(" ", tokens.Select(t => t.Span.ToString())));
+    }
+
+    [Fact]
     public async Task HandlesEntitiesAndHyphens()
     {
         var xml = "&-";

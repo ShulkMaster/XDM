@@ -3,7 +3,7 @@ using System.Text;
 
 namespace Shulkmaster.XDM.Lexer;
 
-public class XmlLexer : IXmlLexer
+public sealed class XmlLexer : IXmlLexer
 {
     private readonly ITextStreamReader _reader;
     private readonly StringBuilder _textBuilder = new();
@@ -75,7 +75,10 @@ public class XmlLexer : IXmlLexer
 
         // First non-whitespace char clears the leading-whitespace flag
         if (_skipLeadingWhitespace && !char.IsWhiteSpace(c))
+        {
             _skipLeadingWhitespace = false;
+        }
+
         if (c == '{')
         {
             if (TryPeekNext(out Rune n))
@@ -120,17 +123,17 @@ public class XmlLexer : IXmlLexer
             yield break;
         }
 
-        if (IsIdentifierStart(r))
-        {
-            _state = LexerState.IdentifierSeq;
-            yield break;
-        }
-
         if (IsNumberStart(r))
         {
             _numberLength = 0;
             _numberHasDot = false;
             _state = LexerState.NumberSeq;
+            yield break;
+        }
+        
+        if (IsIdentifierStart(r) && _insideTag)
+        {
+            _state = LexerState.IdentifierSeq;
             yield break;
         }
 
@@ -214,8 +217,9 @@ public class XmlLexer : IXmlLexer
             yield break;
         }
 
-        if (IsIdentity(ct) || IsIdentifierStart(rt))
+        if (IsIdentity(ct))
         {
+            // todo: do not yield txt but rather collect all chars to figure the identity
             yield return YieldText();
             _state = LexerState.Default;
             yield break;
