@@ -117,6 +117,13 @@ public sealed class XmlLexer : IXmlLexer
             }
         }
 
+        if (c == '"')
+        {
+            Consume();
+            _state = LexerState.TextSeq;
+            yield break;
+        }
+
         if (IsIdentity(c))
         {
             _state = LexerState.IdentitySeq;
@@ -203,6 +210,15 @@ public sealed class XmlLexer : IXmlLexer
         }
 
         char ct = (char)rt.Value;
+        
+        if (ct == '"')
+        {
+            Consume();
+            yield return YieldText();
+            _state = LexerState.Default;
+            yield break;
+        }
+
         if (ct == '{' && TryPeekNext(out Rune nt) && (char)nt.Value == '{')
         {
             Consume(); Consume();

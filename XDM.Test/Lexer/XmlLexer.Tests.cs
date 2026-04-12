@@ -346,17 +346,29 @@ public class XmlLexerTests
     [Fact]
     public async Task SkipsWhitespaceInsideTagAttributes()
     {
-        var xml = "<a  attrib=\"v\"       attrib2=\"w\">";
+        var xml = "<a  attrib=\"value1\"       attrib2=\"value2\">";
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes(xml));
         using var reader = new TextStreamReader(stream);
         var lexer = new XmlLexer(reader);
 
         var tokens = await CollectTokens(lexer);
 
-        // No Text tokens with only whitespace should exist
-        Assert.DoesNotContain(tokens, t => t.Kind == XmlTokenKind.Text && t.Span.ToString().Trim() == "");
-        Assert.Contains(tokens, t => t.Kind == XmlTokenKind.Identifier && t.Span.ToString() == "attrib");
-        Assert.Contains(tokens, t => t.Kind == XmlTokenKind.Identifier && t.Span.ToString() == "attrib2");
+        Assert.Equal(XmlTokenKind.OpenTag, tokens[0].Kind);
+
+        Assert.Equal(XmlTokenKind.Identifier, tokens[1].Kind);
+        Assert.Equal("a", tokens[1].Span.ToString());
+
+        Assert.Equal(XmlTokenKind.Identifier, tokens[2].Kind);
+        Assert.Equal("attrib", tokens[2].Span.ToString());
+        Assert.Equal(XmlTokenKind.Equals, tokens[3].Kind);
+        Assert.Equal("value1", tokens[4].Span.ToString());
+        
+        Assert.Equal(XmlTokenKind.Identifier, tokens[5].Kind);
+        Assert.Equal("attrib2", tokens[5].Span.ToString());
+        Assert.Equal(XmlTokenKind.Equals, tokens[6].Kind);
+        Assert.Equal("value2", tokens[7].Span.ToString());
+        
+        Assert.Equal(XmlTokenKind.CloseTag, tokens[8].Kind);
     }
 
     [Fact]
