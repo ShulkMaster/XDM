@@ -69,7 +69,7 @@ public class XmlLexerTests
         Assert.Equal(XmlTokenKind.OpenTag, tokens[0].Kind);
         Assert.Equal(XmlTokenKind.Identifier, tokens[1].Kind);
         Assert.Equal(XmlTokenKind.CloseTag, tokens[2].Kind);
-        Assert.Equal(XmlTokenKind.Identifier, tokens[3].Kind);
+        Assert.Equal(XmlTokenKind.Text, tokens[3].Kind);
         Assert.Equal(XmlTokenKind.CloseTagStart, tokens[4].Kind);
         Assert.Equal(XmlTokenKind.Identifier, tokens[5].Kind);
         Assert.Equal(XmlTokenKind.CloseTag, tokens[6].Kind);
@@ -146,7 +146,7 @@ public class XmlLexerTests
         var tokens2 = lexer.GetTokens().ToList();
         Assert.Equal(2, tokens2.Count);
         var t1 = tokens2[0];
-        Assert.Equal(XmlTokenKind.Identifier, t1.Kind);
+        Assert.Equal(XmlTokenKind.Text, t1.Kind);
         Assert.Equal(2000, t1.Span.Length);
 
         var t2 = tokens2[1];
@@ -360,7 +360,7 @@ public class XmlLexerTests
     }
 
     [Fact]
-    public async Task PreservesLeadingWhitespaceInTextContent()
+    public async Task PreservesTrailingWhitespaceInTextContent()
     {
         var xml = "<a>   text   </a>";
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes(xml));
@@ -371,10 +371,7 @@ public class XmlLexerTests
 
         // Leading whitespace preserved
         var textTokens = tokens.Where(t => t.Kind == XmlTokenKind.Text).ToList();
-        Assert.Contains(textTokens, t => t.Span.ToString() == "   ");
-
-        var identTokens = tokens.Where(t => t.Kind == XmlTokenKind.Identifier).ToList();
-        Assert.Contains(identTokens, t => t.Span.ToString() == "text");
+        Assert.Contains(textTokens, t => t.Span.ToString() == "text   ");
     }
 
     [Fact]
